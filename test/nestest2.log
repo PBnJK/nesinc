@@ -1,0 +1,8 @@
+
+Starting test run...
+* Running '_blarggInstrTest'... 
+Beginning @ 0000
+0000  00        BRK                             A:00 X:00 Y:00 P:24 SP:FD
+OK
+
+All tests OK!!
