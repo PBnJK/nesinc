@@ -42,10 +42,10 @@ bool romInit(ROM *rom, const uint8_t *RAW) {
 	rom->prgSize = RAW[4] * PRGROM_PAGE_SIZE;
 	rom->chrSize = RAW[5] * CHRROM_PAGE_SIZE;
 
-	const uint16_t SKIP_TRAINER = ((RAW[6] & 4) != 0) ? 512 : 0;
+	const size_t SKIP_TRAINER = ((RAW[6] & 4) != 0) ? 512 : 0;
 
-	const uint16_t PRGROM_START = 16 + SKIP_TRAINER;
-	const uint16_t CHRROM_START = PRGROM_START + rom->prgSize;
+	const size_t PRGROM_START = 16 + SKIP_TRAINER;
+	const size_t CHRROM_START = PRGROM_START + rom->prgSize;
 
 	rom->prgRom = malloc(rom->prgSize);
 	memcpy(rom->prgRom, RAW + PRGROM_START, rom->prgSize);
@@ -74,7 +74,7 @@ void romCreateFromFile(ROM *rom, const char *PATH) {
 	}
 
 	fseek(file, 0L, SEEK_END);
-	const size_t FILE_SIZE = ftell(file);
+	const size_t FILE_SIZE = (size_t)ftell(file);
 	rewind(file);
 
 	uint8_t *buffer = (uint8_t *)malloc(FILE_SIZE + 1);

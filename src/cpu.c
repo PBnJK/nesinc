@@ -36,7 +36,7 @@ static inline void _setCarry(CPU *cpu) {
 }
 
 static inline void _clearCarry(CPU *cpu) {
-	cpu->status &= ~ST_CARRY;
+	cpu->status &= (uint8_t)(~ST_CARRY);
 }
 
 static inline void _setZero(CPU *cpu) {
@@ -44,7 +44,7 @@ static inline void _setZero(CPU *cpu) {
 }
 
 static inline void _clearZero(CPU *cpu) {
-	cpu->status &= ~ST_ZERO;
+	cpu->status &= (uint8_t)(~ST_ZERO);
 }
 
 static inline void _setIntr(CPU *cpu) {
@@ -52,7 +52,7 @@ static inline void _setIntr(CPU *cpu) {
 }
 
 static inline void _clearIntr(CPU *cpu) {
-	cpu->status &= ~ST_INTR;
+	cpu->status &= (uint8_t)(~ST_INTR);
 }
 
 static inline void _setDecimal(CPU *cpu) {
@@ -60,7 +60,7 @@ static inline void _setDecimal(CPU *cpu) {
 }
 
 static inline void _clearDecimal(CPU *cpu) {
-	cpu->status &= ~ST_DECIMAL;
+	cpu->status &= (uint8_t)(~ST_DECIMAL);
 }
 
 static inline void _setBFlag(CPU *cpu) {
@@ -68,7 +68,7 @@ static inline void _setBFlag(CPU *cpu) {
 }
 
 static inline void _clearBFlag(CPU *cpu) {
-	cpu->status &= ~ST_BFLAG;
+	cpu->status &= (uint8_t)(~ST_BFLAG);
 }
 
 static inline void _setUnused(CPU *cpu) {
@@ -76,7 +76,7 @@ static inline void _setUnused(CPU *cpu) {
 }
 
 static inline void _clearUnused(CPU *cpu) {
-	cpu->status &= ~ST_UNUSED;
+	cpu->status &= (uint8_t)(~ST_UNUSED);
 }
 
 static inline void _setOverflow(CPU *cpu) {
@@ -84,7 +84,7 @@ static inline void _setOverflow(CPU *cpu) {
 }
 
 static inline void _clearOverflow(CPU *cpu) {
-	cpu->status &= ~ST_OVERFLOW;
+	cpu->status &= (uint8_t)(~ST_OVERFLOW);
 }
 
 static inline void _setNegative(CPU *cpu) {
@@ -92,7 +92,7 @@ static inline void _setNegative(CPU *cpu) {
 }
 
 static inline void _clearNegative(CPU *cpu) {
-	cpu->status &= ~ST_NEGATIVE;
+	cpu->status &= (uint8_t)(~ST_NEGATIVE);
 }
 
 static uint16_t _getAddressFromMode(CPU *cpu, uint16_t *pc,
@@ -122,14 +122,16 @@ static uint16_t _getAddressFromMode(CPU *cpu, uint16_t *pc,
 			const uint16_t LO = ARGP;
 			const uint16_t HI = ARGP;
 
-			return ((HI << 8) | LO) + cpu->regX;
+			const uint16_t ADDRESS = (uint16_t)((HI << 8) | LO);
+			return (uint16_t)(ADDRESS + cpu->regX);
 		}
 
 		case M_ABSOLUTE_Y: {
 			const uint16_t LO = ARGP;
 			const uint16_t HI = ARGP;
 
-			return ((HI << 8) | LO) + cpu->regY;
+			const uint16_t ADDRESS = (uint16_t)((HI << 8) | LO);
+			return (uint16_t)(ADDRESS + cpu->regY);
 		}
 
 		case M_INDIRECT: {
@@ -185,14 +187,16 @@ static void _updateZeroAndNeg(CPU *cpu, const uint8_t RESULT) {
 }
 
 static void _addToA(CPU *cpu, const uint8_t VALUE) {
-	const uint16_t SUM = cpu->regA + VALUE + ((cpu->status & ST_CARRY) ? 1 : 0);
-	if( SUM > UINT8_MAX ) {
+	uint16_t sum = (uint16_t)(cpu->regA + VALUE);
+	sum += ((cpu->status & ST_CARRY) ? 1 : 0);
+
+	if( sum > UINT8_MAX ) {
 		_setCarry(cpu);
 	} else {
 		_clearCarry(cpu);
 	}
 
-	const uint8_t RESULT = (uint8_t)SUM;
+	const uint8_t RESULT = (uint8_t)sum;
 
 	if( ((VALUE ^ RESULT) & (RESULT ^ cpu->regA) & 0x80) != 0 ) {
 		_setOverflow(cpu);
@@ -225,7 +229,7 @@ static void _rorA(CPU *cpu) {
 	}
 
 	cpu->regA >>= 1;
-	
+
 	if( OLD_CARRY ) {
 		cpu->regA |= ST_NEGATIVE;
 	}
@@ -235,7 +239,7 @@ static void _rorA(CPU *cpu) {
 
 static uint16_t _branch(CPU *cpu, uint16_t pc, const uint8_t COMPARISON) {
 	if( COMPARISON ) {
-		return pc + ((int8_t)cpuRead(cpu, pc)) + 1;
+		return (uint16_t)(pc + ((int8_t)cpuRead(cpu, pc)) + 1);
 	}
 
 	return pc + 1;
@@ -289,10 +293,22 @@ OP_FN(_adc) {
 	return pc;
 }
 
+/* ANDs the X register with the accumulator, then ANDs the accumulator with 7.
+ * The result is stored in memory
+ */
+OP_FN(_ahx) {
+	const uint8_t RESULT = (cpu->regA & cpu->regX) & 7;
+	cpuWrite(cpu, ADDR, RESULT);
+
+	return pc;
+}
+
 /* ANDs a byte with accumulator, then preforms a logical shift right on the
  * accumulator
  */
 OP_FN(_alr) {
+	UNUSED(MODE);
+
 	cpu->regA &= cpuRead(cpu, ++pc);
 	_lsrA(cpu);
 
@@ -306,7 +322,7 @@ OP_FN(_anc) {
 	cpu->regA &= MEMADDR;
 	UPDATE(cpu->regA);
 
-	if( ( cpu->status & ST_NEGATIVE ) != 0 ) {
+	if( (cpu->status & ST_NEGATIVE) != 0 ) {
 		_setCarry(cpu);
 	} else {
 		_clearCarry(cpu);
@@ -371,7 +387,7 @@ OP_FN(_asl) {
 			_clearCarry(cpu);
 		}
 
-		cpu->regA <<= 1;
+		cpu->regA = (uint8_t)(cpu->regA << 1);
 		UPDATE(cpu->regA);
 	} else {
 		const uint16_t ADDRESS = ADDR;
@@ -394,7 +410,29 @@ OP_FN(_asl) {
  * register
  */
 OP_FN(_atx) {
+	cpu->regA &= MEMADDR;
+	cpu->regX = cpu->regA;
 
+	UPDATE(cpu->regA);
+
+	return pc;
+}
+
+/* ANDs the X register with the accumulator, and subtracts a byte from the
+ * result
+ */
+OP_FN(_axs) {
+	const uint8_t VALUE = MEMADDR;
+
+	cpu->regX &= cpu->regA;
+	if( VALUE <= cpu->regX ) {
+		_setCarry(cpu);
+	}
+
+	cpu->regX -= VALUE;
+	UPDATE(cpu->regX);
+
+	return pc;
 }
 
 /* Branches if the carry flag is clear */
@@ -644,7 +682,7 @@ OP_FN(_iny) {
 	UPDATE(cpu->regY);
 
 	return pc;
-}           
+}
 
 /* Increases a value in memory by 1, then subtracts the result from the
  * accumulator
@@ -675,6 +713,19 @@ OP_FN(_jsr) {
 	_push16(cpu, pc + 1);
 
 	return ADDR;
+}
+
+/* ANDs a value in memory with the stack pointer.
+ * The result is stored on the accumulator, X register and stack pointer
+ */
+OP_FN(_las) {
+	cpu->stack &= MEMADDR;
+	UPDATE(cpu->stack);
+
+	cpu->regA = cpu->stack;
+	cpu->regX = cpu->stack;
+
+	return pc;
 }
 
 /* Loads the X register and the accumulator with a value in memory */
@@ -861,7 +912,7 @@ OP_FN(_rol) {
 			_clearCarry(cpu);
 		}
 
-		cpu->regA <<= 1;
+		cpu->regA = (uint8_t)(cpu->regA << 1);
 		if( OLD_CARRY ) {
 			cpu->regA |= 1;
 		}
@@ -975,6 +1026,30 @@ OP_FN(_sei) {
 	return pc;
 }
 
+/* ANDs the X register with the high byte of the given address, + 1
+ * The result is stored in memory
+ */
+OP_FN(_shx) {
+	const uint16_t ADDRESS = ADDR;
+	const uint8_t HI_BYTE = (uint8_t)((ADDRESS >> 8) + 1);
+
+	cpuWrite(cpu, ADDRESS, cpu->regX & HI_BYTE);
+
+	return pc;
+}
+
+/* ANDs the Y register with the high byte of the given address, + 1
+ * The result is stored in memory
+ */
+OP_FN(_shy) {
+	const uint16_t ADDRESS = ADDR;
+	const uint8_t HI_BYTE = (uint8_t)((ADDRESS >> 8) + 1);
+
+	cpuWrite(cpu, ADDRESS, cpu->regY & HI_BYTE);
+
+	return pc;
+}
+
 /* ASLs a value in memory and ORs the accumulator with the result */
 OP_FN(_slo) {
 	const uint16_t ADDRESS = ADDR;
@@ -986,7 +1061,7 @@ OP_FN(_slo) {
 		_clearCarry(cpu);
 	}
 
-	value <<= 1;
+	value = (uint8_t)(value << 1);
 
 	cpuWrite(cpu, ADDRESS, value);
 
@@ -1030,6 +1105,24 @@ OP_FN(_stx) {
 /* Stores the Y register contents in memory */
 OP_FN(_sty) {
 	cpuWrite(cpu, ADDR, cpu->regY);
+	return pc;
+}
+
+/* ANDs the accumulator with the X register and stores the result on the stack
+ * pointer
+ *
+ * The stack pointer is then ANDed with the high byte of the given memory
+ * address + 1, and the result of that operation is stored in memory
+ *
+ * A very useful operation with many, many *obvious* use cases :)
+ */
+OP_FN(_tas) {
+	cpu->stack = cpu->regA & cpu->regX;
+
+	const uint16_t ADDRESS = ADDR;
+	const uint8_t HI_BYTE = (uint8_t)((ADDR >> 8) + 1);
+
+	cpuWrite(cpu, ADDRESS, cpu->stack & HI_BYTE);
 	return pc;
 }
 
@@ -1091,6 +1184,30 @@ OP_FN(_tya) {
 	return pc;
 }
 
+/* This operation is weird and "unpredictable"
+ *
+ * This implementation is based on this page:
+ * https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE)
+ *
+ * Though not 100% accurate due to the very nature of this OP, this
+ * implementation ANDs the accumulator with the X register, the input byte and
+ * the accumulator itself
+ *
+ * The input accumulator is first ORed with a "magic" (in this case, 0xFF,)
+ * which emulates the hardware weirdness that allows only certain bits of the
+ * accumulator to be ANDed with itself.
+ *
+ * The magic numbers tend to be: 0xFF, 0xFE, 0xEE or 0x00
+ *
+ * Different 6502 models/versions have different magic numbers
+ */
+OP_FN(_xaa) {
+	cpu->regA = (cpu->regA | 0xFF) & cpu->regX & MEMADDR;
+	UPDATE(cpu->regA);
+
+	return pc;
+}
+
 static const Op OPS[256] = {
 	[0x69] = {_adc, M_IMMEDIATE, 2, 2, "ADC"},
 	[0x65] = {_adc, M_ZEROPAGE, 3, 2, "ADC"},
@@ -1100,6 +1217,9 @@ static const Op OPS[256] = {
 	[0x79] = {_adc, M_ABSOLUTE_Y, 4, 3, "ADC"},
 	[0x61] = {_adc, M_INDIRECT_X, 6, 2, "ADC"},
 	[0x71] = {_adc, M_INDIRECT_Y, 5, 2, "ADC"},
+
+	[0x9F] = {_ahx, M_ABSOLUTE_Y, 5, 3, "*AHX"},
+	[0x93] = {_ahx, M_INDIRECT_Y, 6, 3, "*AHX"},
 
 	[0x4B] = {_alr, M_IMMEDIATE, 2, 2, "*ALR"},
 
@@ -1122,6 +1242,10 @@ static const Op OPS[256] = {
 	[0x16] = {_asl, M_ZEROPAGE_X, 6, 2, "ASL"},
 	[0x0E] = {_asl, M_ABSOLUTE, 6, 3, "ASL"},
 	[0x1E] = {_asl, M_ABSOLUTE_X, 7, 3, "ASL"},
+
+	[0XAB] = {_atx, M_IMMEDIATE, 2, 2, "*ATX"},
+
+	[0XCB] = {_axs, M_IMMEDIATE, 2, 2, "*AXS"},
 
 	[0x90] = {_bcc, M_RELATIVE, 2, 2, "BCC"},
 	[0xB0] = {_bcs, M_RELATIVE, 2, 2, "BCS"},
@@ -1203,6 +1327,8 @@ static const Op OPS[256] = {
 	[0x6C] = {_jmp, M_INDIRECT, 5, 3, "JMP"},
 
 	[0x20] = {_jsr, M_ABSOLUTE, 6, 3, "JSR"},
+
+	[0xBB] = {_las, M_ABSOLUTE_Y, 4, 3, "*LAS"},
 
 	[0xA7] = {_lax, M_ZEROPAGE, 3, 2, "*LAX"},
 	[0xB7] = {_lax, M_ZEROPAGE_Y, 4, 2, "*LAX"},
@@ -1335,6 +1461,9 @@ static const Op OPS[256] = {
 	[0xF8] = {_sed, M_IMPLIED, 2, 1, "SED"},
 	[0x78] = {_sei, M_IMPLIED, 2, 1, "SEI"},
 
+	[0x9E] = {_shx, M_ABSOLUTE_Y, 3, 3, "*SHX"},
+	[0x9C] = {_shy, M_ABSOLUTE_X, 5, 3, "*SHY"},
+
 	[0x07] = {_slo, M_ZEROPAGE, 5, 2, "*SLO"},
 	[0x17] = {_slo, M_ZEROPAGE_X, 6, 2, "*SLO"},
 	[0x0F] = {_slo, M_ABSOLUTE, 6, 3, "*SLO"},
@@ -1367,12 +1496,16 @@ static const Op OPS[256] = {
 	[0x94] = {_sty, M_ZEROPAGE_X, 4, 2, "STY"},
 	[0x8C] = {_sty, M_ABSOLUTE, 4, 3, "STY"},
 
+	[0x9B] = {_tas, M_ABSOLUTE_Y, 5, 3, "*TAS"},
+
 	[0xAA] = {_tax, M_IMPLIED, 2, 1, "TAX"},
 	[0xA8] = {_tay, M_IMPLIED, 2, 1, "TAY"},
 	[0xBA] = {_tsx, M_IMPLIED, 2, 1, "TSX"},
 	[0x8A] = {_txa, M_IMPLIED, 2, 1, "TXA"},
 	[0x9A] = {_txs, M_IMPLIED, 2, 1, "TXS"},
 	[0x98] = {_tya, M_IMPLIED, 2, 1, "TYA"},
+
+	[0x8B] = {_xaa, M_IMMEDIATE, 2, 2, "*XAA"},
 };
 
 void cpuReset(CPU *cpu) {
@@ -1540,11 +1673,12 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 			printf("%02X %02X    ", cpuRead(cpu, pc), cpuRead(cpu, pc + 1));
 			break;
 		case 3:
-			printf("%02X %02X %02X ", cpuRead(cpu, pc),
-				   cpuRead(cpu, pc + 1), cpuRead(cpu, pc + 2));
+			printf("%02X %02X %02X ", cpuRead(cpu, pc), cpuRead(cpu, pc + 1),
+				   cpuRead(cpu, pc + 2));
 			break;
 		default:
-			errPrint(C_YELLOW, "Bad OP @ pc=%04X %02X, dumping info:\n", pc, cpuRead(cpu, pc));
+			errPrint(C_YELLOW, "Bad OP @ pc=%04X %02X, dumping info:\n", pc,
+					 cpuRead(cpu, pc));
 			printf(" * Addressing mode.. %02X\n", OP.mode);
 			printf(" * Cycles........... %02X\n", OP.cycles);
 			printf(" * Bytes............ %02X\n", OP.bytes);
@@ -1571,7 +1705,7 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 
 		case M_ZEROPAGE_X: {
 			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint8_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
 			printf("$%02X,X @ %02x = %02X             ", ADDRESS, COMPUTED,
 				   cpuRead(cpu, COMPUTED));
@@ -1579,7 +1713,7 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 
 		case M_ZEROPAGE_Y: {
 			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint8_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
 			printf("$%02X,Y @ %02X = %02X             ", ADDRESS, COMPUTED,
 				   cpuRead(cpu, COMPUTED));
@@ -1625,16 +1759,17 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("($%02X,X) @ %02X = %04X = %02X    ", ADDRESS, (ADDRESS + cpu->regX) & 0xFF,
-				   COMPUTED, cpuRead(cpu, COMPUTED));
+			printf("($%02X,X) @ %02X = %04X = %02X    ", ADDRESS,
+				   (ADDRESS + cpu->regX) & 0xFF, COMPUTED,
+				   cpuRead(cpu, COMPUTED));
 		} break;
 
 		case M_INDIRECT_Y: {
 			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("($%02X),Y = %04X @ %04X = %02X  ", ADDRESS, (COMPUTED - cpu->regY),
-				   COMPUTED, cpuRead(cpu, COMPUTED));
+			printf("($%02X),Y = %04X @ %04X = %02X  ", ADDRESS,
+				   (COMPUTED - cpu->regY), COMPUTED, cpuRead(cpu, COMPUTED));
 		} break;
 
 		case M_IMPLIED:
@@ -1650,12 +1785,10 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 }
 
 void cpuRun(CPU *cpu) {
-	srand(time(NULL));
+	srand((unsigned int)time(NULL));
 	struct timespec x = {.tv_nsec = 999999};
 
 	register uint16_t pc = cpuRead16(cpu, 0xFFFC);
-
-	printf("Beginning @ %04X\n", pc);
 
 	while( true ) {
 		nanosleep(&x, &x);
@@ -1666,6 +1799,21 @@ void cpuRun(CPU *cpu) {
 			case 0x00: /* BRK */
 				cpuTrace(cpu, pc - 1, (Op){NULL, M_IMPLIED, 7, 1, "BRK"});
 				return;
+			case 0x02:	// KIL
+			case 0x12:	// Unnoficial opcode, works basically the same as BRK
+			case 0x22:	// (in practice, not quite. But for this emulator, it
+			case 0x32:	// will do...
+			case 0x42:
+			case 0x52:
+			case 0x62:
+			case 0x72:
+			case 0x92:
+			case 0xB2:
+			case 0xD2:
+			case 0xF2:
+				cpuTrace(cpu, pc - 1, (Op){NULL, M_IMPLIED, 7, 1, "*KIL"});
+				return;
+
 			default: {
 				const Op OPERATION = OPS[OP];
 				cpuTrace(cpu, pc - 1, OPERATION);

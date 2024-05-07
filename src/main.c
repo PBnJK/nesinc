@@ -5,6 +5,9 @@
 #include "test.h"
 
 int main(int argc, char *argv[]) {
+	UNUSED(argc);
+	UNUSED(argv);
+
 	if( SDL_Init(SDL_INIT_VIDEO) < 0 ) {
 		errPrint(C_RED,
 				 "Couldn't initialize SDL.\n"

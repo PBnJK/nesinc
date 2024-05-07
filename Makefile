@@ -1,31 +1,32 @@
 # - - - - - - - - - - - - - - - - - - - - - - - -
 #
 # Makefile pro NESinC
-# Compila a linguagem
-# 
-# Uso (rode pelo CMD no mesmo diretório do Makefile):
-# make -f Makefile [all|fresh|clean|reformat|document]
+# Compiles the emulator
 #
-# Alvos:
-# - all: Compila tudo;
-# - fresh: Limpa os executáveis, objetos, reformata, documenta e compila.
-#          Basicamente compila do zero;
-# - clean: Limpa os executáveis e objetos. CUIDADO! Pode apagar coisar
-#          indesejadas se usado de forma incorreta;
-# - reformat: Reformata o código com clang-format. clang-format precisa
-#             estar no seu PATH;
+# Use:
+# ~ make -f Makefile [all|fresh|clean|reformat|document]
+#
+# Targets:
+# - all: Compiles all;
+# - fresh: Runs clean, reformat and all, running a fresh compilation;
+# - clean: rm -rf's .o and .exe files;
+# - reformat: Reformats the codebase with clang-format. Make sure it's on
+#             your path :)
 #
 # - - - - - - - - - - - - - - - - - - - - - - - -
 
-# -- Pré-compilação --
+# -- Pre-compilation step --
 
-# Compilador
+# Compiler + linker
 CC := gcc
 LD := gcc
 
-CFLAGS := -Wall -Wextra -pedantic -g3
+SANITIZE := -fsanitize=undefined -fsanitize-trap
 
-# Caminhos
+# Flags from: https://nullprogram.com/blog/2023/04/29
+CFLAGS := -g3 -Wall -Wextra -Wconversion -Wdouble-promotion -pedantic
+
+# Paths
 BASE := $(CURDIR)
 
 SRC := $(BASE)/src
@@ -36,9 +37,11 @@ DOC := $(BASE)/doc
 
 CFLAGS += -I$(INC)
 CFLAGS += -IC:/SDL2/include
-LDFLAGS := -LC:/SDL2/lib -lmingw32 -lSDL2main -lSDL2
 
-# Códigos-fonte
+CFLAGS += $(SANITIZE)
+LDFLAGS := -LC:/SDL2/lib -lmingw32 -lSDL2main -lSDL2 $(SANITIZE)
+
+# Source files
 SRCS := $(wildcard $(SRC)/*.c )
 OBJS := $(patsubst $(SRC)/%.c,$(OBJ)/%.o,$(SRCS))
 
@@ -46,7 +49,6 @@ OBJS := $(patsubst $(SRC)/%.c,$(OBJ)/%.o,$(SRCS))
 
 .PHONY: all clean reformat fresh
 
-# Compila
 all: $(OBJS)
 	@echo
 	@echo Linking $@
@@ -65,20 +67,15 @@ $(OBJ)/%.o: $(SRC)/%.c
 	@echo Done
 	@echo
     
-# Clean
-# rm -rf basicamente
+
 clean:
 	$(RM) $(OUT)/*.exe
 	$(RM) $(OBJ)/*.o
 	clear
 
-# Reformat
-# Reformata o código usando clang-format
 reformat:
 	clang-format $(SRC)/*.c -style=file -i
 	clang-format $(INC)/*.h -style=file -i
 
-# Fresh
-# Limpa os objetos/exe, reformata o código e compila de novo
 fresh: clean reformat all
 

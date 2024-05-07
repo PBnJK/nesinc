@@ -19,14 +19,14 @@
  * └───────── Negative
  */
 
-#define ST_CARRY (1 << 0)
-#define ST_ZERO (1 << 1)
-#define ST_INTR (1 << 2)
-#define ST_DECIMAL (1 << 3)
-#define ST_BFLAG (1 << 4)
-#define ST_UNUSED (1 << 5)
-#define ST_OVERFLOW (1 << 6)
-#define ST_NEGATIVE (1 << 7)
+#define ST_CARRY (1u << 0)
+#define ST_ZERO (1u << 1)
+#define ST_INTR (1u << 2)
+#define ST_DECIMAL (1u << 3)
+#define ST_BFLAG (1u << 4)
+#define ST_UNUSED (1u << 5)
+#define ST_OVERFLOW (1u << 6)
+#define ST_NEGATIVE (1u << 7)
 
 typedef struct _CPU {
 	uint8_t regA; /* Register A */

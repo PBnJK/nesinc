@@ -42,7 +42,10 @@ uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
 }
 
 uint16_t busRead16(Bus *bus, const uint16_t ADDRESS) {
-	return (busRead(bus, ADDRESS) | (busRead(bus, ADDRESS + 1) << 8));
+	const uint16_t LO = (uint16_t)busRead(bus, ADDRESS);
+	const uint16_t HI = (uint16_t)busRead(bus, ADDRESS + 1);
+
+	return (HI << 8) | LO;
 }
 
 void busWrite(Bus *bus, const uint16_t ADDRESS, const uint8_t VALUE) {
@@ -61,6 +64,6 @@ void busWrite(Bus *bus, const uint16_t ADDRESS, const uint8_t VALUE) {
 }
 
 void busWrite16(Bus *bus, const uint16_t ADDRESS, const uint16_t VALUE) {
-	busWrite(bus, ADDRESS, VALUE & 0xFF);
-	busWrite(bus, ADDRESS + 1, VALUE >> 8);
+	busWrite(bus, ADDRESS, (uint8_t)(VALUE & 0xFF));
+	busWrite(bus, ADDRESS + 1, (uint8_t)(VALUE >> 8));
 }

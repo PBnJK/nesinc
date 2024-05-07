@@ -80,7 +80,7 @@ TEST_FN(_and) {
 }
 
 TEST_FN(_andZeroOut) {
-	TEST(4, 0xA9, 0x55, 0x29, ~0x55);
+	TEST(4, 0xA9, 0x55, 0x29, 0xAA);
 	RET(cpu.regA == 0x00);
 }
 
@@ -285,10 +285,10 @@ TEST_FN(_smallTest) {
 	RET(cpu.regX == 0xC1);
 }
 
-TEST_FN(_nestest) {
+/*TEST_FN(_nestest) {
 	RUN_ROM("test/nestest.nes");
 	return true;
-}
+}*/
 
 TEST_FN(_blarggInstrTest) {
 	RUN_ROM("test/blargg_instr_test.nes");
@@ -298,7 +298,7 @@ TEST_FN(_blarggInstrTest) {
 bool testRun(void) {
 	printf("\nStarting test run...\n");
 
-	/*RUN_TEST(_adc);
+	RUN_TEST(_adc);
 	RUN_TEST(_adcOverflow);
 
 	RUN_TEST(_and);
@@ -345,7 +345,7 @@ bool testRun(void) {
 	RUN_TEST(_tax);
 
 	RUN_TEST(_smallTest);
-	RUN_TEST(_nestest);*/
+	// RUN_TEST(_nestest);
 
 	RUN_TEST(_blarggInstrTest);
 

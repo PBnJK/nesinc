@@ -10,10 +10,10 @@ typedef enum {
 } Mirroring;
 
 typedef struct _ROM {
-	uint32_t prgSize;
+	size_t prgSize;
 	uint8_t *prgRom;
 
-	uint32_t chrSize;
+	size_t chrSize;
 	uint8_t *chrRom;
 
 	uint8_t mapper;
