@@ -1,13 +1,13 @@
-#ifndef GUARD_NESINC_ADDRESS_REGISTER_H_
-#define GUARD_NESINC_ADDRESS_REGISTER_H_
+#ifndef GUARD_NESINC_PPU_ADDRESS_REGISTER_H_
+#define GUARD_NESINC_PPU_ADDRESS_REGISTER_H_
 
 #include "common.h"
 
 typedef struct _AddrReg {
 	union {
 		struct {
-			uint8_t hi;
 			uint8_t lo;
+			uint8_t hi;
 		};
 
 		uint16_t full;
@@ -26,4 +26,4 @@ void addrIncrement(AddrReg *addr, const uint8_t INCREMENT);
 
 void addrResetLatch(AddrReg *addr);
 
-#endif	// GUARD_NESINC_ADDRESS_REGISTER_H_
+#endif	// GUARD_NESINC_PPU_ADDRESS_REGISTER_H_

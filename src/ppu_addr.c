@@ -1,10 +1,12 @@
-#include "addr_register.h"
+#include "ppu_addr.h"
+
+#include <stdio.h>
 
 void addrInit(AddrReg *addr) {
 	addr->address.hi = 0;
 	addr->address.lo = 0;
 
-addr->hiPtr = true;
+	addr->hiPtr = true;
 }
 
 void addrSet(AddrReg *addr, const uint16_t DATA) {
@@ -43,6 +45,8 @@ void addrIncrement(AddrReg *addr, const uint8_t INCREMENT) {
 	if( VALUE > 0x3FFF ) {
 		addrSet(addr, VALUE & 0x3FFF);
 	}
+	
+	printf("+ + Address is now %04X\n", addr->address.full);
 }
 
 void addrResetLatch(AddrReg *addr) {

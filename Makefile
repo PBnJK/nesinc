@@ -24,7 +24,7 @@ LD := gcc
 SANITIZE := -fsanitize=undefined -fsanitize-trap
 
 # Flags from: https://nullprogram.com/blog/2023/04/29
-CFLAGS := -g3 -Wall -Wextra -Wconversion -Wdouble-promotion -pedantic
+CFLAGS := -g3 -Wall -Wextra -Wconversion -Wdouble-promotion
 
 # Paths
 BASE := $(CURDIR)

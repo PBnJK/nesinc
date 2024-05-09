@@ -1,5 +1,6 @@
 dev/*
 obj/*
 out/*
+test_rom/*
 
 *.swp

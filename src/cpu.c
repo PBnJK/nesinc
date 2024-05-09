@@ -8,6 +8,7 @@
 
 #include "SDL2/SDL.h"
 #include "error.h"
+#include "frame.h"
 #include "screen.h"
 
 typedef enum {
@@ -31,68 +32,92 @@ typedef enum {
 #define ADDR _getAddressFromMode(cpu, &pc, MODE)
 #define MEMADDR cpuRead(cpu, ADDR)
 
+static void _gameCallback(PPU *ppu) {
+	ppuRender(ppu);
+
+	SDL_UpdateTexture(gScreen.texture, NULL, &ppu->frame.data, 256 * 3);
+	SDL_RenderCopy(gScreen.renderer, gScreen.texture, NULL, NULL);
+	SDL_RenderPresent(gScreen.renderer);
+
+	SDL_Event e;
+	while( SDL_PollEvent(&e) ) {
+		switch( e.type ) {
+			case SDL_QUIT:
+				exit(23);
+			case SDL_KEYDOWN:
+				if( e.key.keysym.sym == SDLK_ESCAPE ) {
+					exit(24);
+				}
+
+				break;
+			default:
+				break;
+		}
+	}
+}
+
 static inline void _setCarry(CPU *cpu) {
-	cpu->status |= ST_CARRY;
+	cpu->status.carry = 1;
 }
 
 static inline void _clearCarry(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_CARRY);
+	cpu->status.carry = 0;
 }
 
 static inline void _setZero(CPU *cpu) {
-	cpu->status |= ST_ZERO;
+	cpu->status.zero = 1;
 }
 
 static inline void _clearZero(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_ZERO);
+	cpu->status.zero = 0;
 }
 
 static inline void _setIntr(CPU *cpu) {
-	cpu->status |= ST_INTR;
+	cpu->status.interrupt = 1;
 }
 
 static inline void _clearIntr(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_INTR);
+	cpu->status.interrupt = 1;
 }
 
 static inline void _setDecimal(CPU *cpu) {
-	cpu->status |= ST_DECIMAL;
+	cpu->status.decimal = 1;
 }
 
 static inline void _clearDecimal(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_DECIMAL);
+	cpu->status.decimal = 0;
 }
 
-static inline void _setBFlag(CPU *cpu) {
-	cpu->status |= ST_BFLAG;
+static inline void _setBFlag1(CPU *cpu) {
+	cpu->status.bFlag1 = 1;
 }
 
-static inline void _clearBFlag(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_BFLAG);
+static inline void _clearBFlag1(CPU *cpu) {
+	cpu->status.bFlag1 = 0;
 }
 
-static inline void _setUnused(CPU *cpu) {
-	cpu->status |= ST_UNUSED;
+static inline void _setBFlag2(CPU *cpu) {
+	cpu->status.bFlag2 = 1;
 }
 
-static inline void _clearUnused(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_UNUSED);
+static inline void _clearBFlag2(CPU *cpu) {
+	cpu->status.bFlag2 = 0;
 }
 
 static inline void _setOverflow(CPU *cpu) {
-	cpu->status |= ST_OVERFLOW;
+	cpu->status.overflow = 1;
 }
 
 static inline void _clearOverflow(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_OVERFLOW);
+	cpu->status.overflow = 0;
 }
 
 static inline void _setNegative(CPU *cpu) {
-	cpu->status |= ST_NEGATIVE;
+	cpu->status.negative = 1;
 }
 
 static inline void _clearNegative(CPU *cpu) {
-	cpu->status &= (uint8_t)(~ST_NEGATIVE);
+	cpu->status.negative = 0;
 }
 
 static uint16_t _getAddressFromMode(CPU *cpu, uint16_t *pc,
@@ -179,7 +204,7 @@ static void _updateZeroAndNeg(CPU *cpu, const uint8_t RESULT) {
 		_clearZero(cpu);
 	}
 
-	if( (RESULT & ST_NEGATIVE) != 0 ) {
+	if( (RESULT & SIGN_BIT) != 0 ) {
 		_setNegative(cpu);
 	} else {
 		_clearNegative(cpu);
@@ -188,7 +213,7 @@ static void _updateZeroAndNeg(CPU *cpu, const uint8_t RESULT) {
 
 static void _addToA(CPU *cpu, const uint8_t VALUE) {
 	uint16_t sum = (uint16_t)(cpu->regA + VALUE);
-	sum += ((cpu->status & ST_CARRY) ? 1 : 0);
+	sum += ((cpu->status.carry) ? 1 : 0);
 
 	if( sum > UINT8_MAX ) {
 		_setCarry(cpu);
@@ -220,7 +245,7 @@ static void _lsrA(CPU *cpu) {
 }
 
 static void _rorA(CPU *cpu) {
-	const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+	const bool OLD_CARRY = (cpu->status.carry == 1);
 
 	if( (cpu->regA & 1) == 1 ) {
 		_setCarry(cpu);
@@ -231,7 +256,7 @@ static void _rorA(CPU *cpu) {
 	cpu->regA >>= 1;
 
 	if( OLD_CARRY ) {
-		cpu->regA |= ST_NEGATIVE;
+		cpu->regA |= SIGN_BIT;
 	}
 
 	UPDATE(cpu->regA);
@@ -322,7 +347,7 @@ OP_FN(_anc) {
 	cpu->regA &= MEMADDR;
 	UPDATE(cpu->regA);
 
-	if( (cpu->status & ST_NEGATIVE) != 0 ) {
+	if( cpu->status.negative != 0 ) {
 		_setCarry(cpu);
 	} else {
 		_clearCarry(cpu);
@@ -438,19 +463,19 @@ OP_FN(_axs) {
 /* Branches if the carry flag is clear */
 OP_FN(_bcc) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_CARRY) == 0);
+	return _branch(cpu, pc, cpu->status.carry == 0);
 }
 
 /* Branches if the carry flag is set */
 OP_FN(_bcs) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_CARRY) != 0);
+	return _branch(cpu, pc, cpu->status.carry == 1);
 }
 
 /* Branches if the zero flag is set */
 OP_FN(_beq) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_ZERO) != 0);
+	return _branch(cpu, pc, cpu->status.zero == 1);
 }
 
 /* Tests if the bits of a memory location are set by ANDing them with a mask
@@ -469,13 +494,13 @@ OP_FN(_bit) {
 		_clearZero(cpu);
 	}
 
-	if( (VALUE & ST_NEGATIVE) != 0 ) {
+	if( (VALUE & SIGN_BIT) != 0 ) {
 		_setNegative(cpu);
 	} else {
 		_clearNegative(cpu);
 	}
 
-	if( (VALUE & ST_OVERFLOW) != 0 ) {
+	if( (VALUE & OVERFLOW_BIT) != 0 ) {
 		_setOverflow(cpu);
 	} else {
 		_clearOverflow(cpu);
@@ -487,31 +512,31 @@ OP_FN(_bit) {
 /* Branches if the negative flag is set */
 OP_FN(_bmi) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_NEGATIVE) != 0);
+	return _branch(cpu, pc, cpu->status.negative == 1);
 }
 
 /* Branches if the zero flag is clear */
 OP_FN(_bne) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_ZERO) == 0);
+	return _branch(cpu, pc, cpu->status.zero == 0);
 }
 
 /* Branches if the negative flag is clear */
 OP_FN(_bpl) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_NEGATIVE) == 0);
+	return _branch(cpu, pc, cpu->status.negative == 0);
 }
 
 /* Branches if the overflow flag is clear */
 OP_FN(_bvc) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_OVERFLOW) == 0);
+	return _branch(cpu, pc, cpu->status.overflow == 0);
 }
 
 /* Branches if the overflow flag is set */
 OP_FN(_bvs) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, (cpu->status & ST_OVERFLOW) != 0);
+	return _branch(cpu, pc, cpu->status.overflow == 1);
 }
 
 /* Clears the carry flag */
@@ -811,7 +836,7 @@ OP_FN(_pha) {
  */
 OP_FN(_php) {
 	UNUSED(MODE);
-	_push(cpu, cpu->status | ST_UNUSED | ST_BFLAG);
+	_push(cpu, cpu->status.bits | BFLAG1_BIT | BFLAG2_BIT);
 
 	return pc;
 }
@@ -834,8 +859,10 @@ OP_FN(_pla) {
 OP_FN(_plp) {
 	UNUSED(MODE);
 
-	cpu->status = _pull(cpu) | ST_UNUSED;
-	_clearBFlag(cpu);
+	cpu->status.bits = _pull(cpu);
+	cpu->status.bFlag2 = 1;
+
+	_clearBFlag1(cpu);
 
 	return pc;
 }
@@ -846,7 +873,7 @@ OP_FN(_plp) {
 OP_FN(_rla) {
 	const uint16_t ADDRESS = ADDR;
 	const uint8_t VALUE = cpuRead(cpu, ADDRESS);
-	const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+	const bool OLD_CARRY = (cpu->status.carry == 1);
 
 	if( (VALUE >> 7) == 1 ) {
 		_setCarry(cpu);
@@ -873,7 +900,7 @@ OP_FN(_rla) {
 OP_FN(_rra) {
 	const uint16_t ADDRESS = ADDR;
 	const uint8_t VALUE = cpuRead(cpu, ADDRESS);
-	const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+	const bool OLD_CARRY = (cpu->status.carry == 1);
 
 	if( (VALUE & 1) == 1 ) {
 		_setCarry(cpu);
@@ -883,7 +910,7 @@ OP_FN(_rra) {
 
 	uint8_t val = (VALUE >> 1);
 	if( OLD_CARRY ) {
-		val |= ST_NEGATIVE;
+		val |= SIGN_BIT;
 	}
 
 	cpuWrite(cpu, ADDRESS, val);
@@ -904,7 +931,7 @@ OP_FN(_rra) {
  */
 OP_FN(_rol) {
 	if( MODE == M_IMPLIED ) {
-		const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+		const bool OLD_CARRY = (cpu->status.carry == 1);
 
 		if( (cpu->regA >> 7) == 1 ) {
 			_setCarry(cpu);
@@ -921,7 +948,7 @@ OP_FN(_rol) {
 	} else {
 		const uint16_t ADDRESS = ADDR;
 		const uint8_t VALUE = cpuRead(cpu, ADDRESS);
-		const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+		const bool OLD_CARRY = (cpu->status.carry == 1);
 
 		if( (VALUE >> 7) == 1 ) {
 			_setCarry(cpu);
@@ -948,7 +975,7 @@ OP_FN(_ror) {
 	} else {
 		const uint16_t ADDRESS = ADDR;
 		const uint8_t VALUE = cpuRead(cpu, ADDRESS);
-		const bool OLD_CARRY = (cpu->status & ST_CARRY) == 1;
+		const bool OLD_CARRY = (cpu->status.carry == 1);
 
 		if( (VALUE & 1) == 1 ) {
 			_setCarry(cpu);
@@ -958,7 +985,7 @@ OP_FN(_ror) {
 
 		uint8_t val = (VALUE >> 1);
 		if( OLD_CARRY ) {
-			val |= ST_NEGATIVE;
+			val |= SIGN_BIT;
 		}
 
 		cpuWrite(cpu, ADDRESS, val);
@@ -977,8 +1004,10 @@ OP_FN(_rti) {
 	UNUSED(MODE);
 	UNUSED(pc);
 
-	cpu->status = _pull(cpu) | ST_UNUSED;
-	_clearBFlag(cpu);
+	cpu->status.bits = _pull(cpu);
+	cpu->status.bFlag2 = 1;
+
+	_clearBFlag1(cpu);
 
 	return _pull16(cpu);
 }
@@ -1513,18 +1542,23 @@ void cpuReset(CPU *cpu) {
 	cpu->regX = 0;
 	cpu->regY = 0;
 
-	cpu->status = ST_INTR | ST_UNUSED;
+	cpu->status.bits = 0;
+	cpu->status.interrupt = 1;
+	cpu->status.bFlag2 = 1;
+
 	cpu->stack = 0xFD;
 }
 
 void cpuInit(CPU *cpu, Bus bus) {
 	cpuReset(cpu);
+
 	cpu->bus = bus;
+	cpu->bus.callback = _gameCallback;
 }
 
 void cpuInitFromROM(CPU *cpu, ROM rom) {
 	cpuReset(cpu);
-	busInit(&cpu->bus, rom);
+	busInit(&cpu->bus, rom, _gameCallback);
 }
 
 uint8_t cpuRead(CPU *cpu, const uint16_t ADDRESS) {
@@ -1554,7 +1588,7 @@ void cpuLoadAndRun(CPU *cpu, const uint8_t *CODE, const uint16_t SIZE) {
 	romInit(&rom, CODE);
 
 	Bus bus;
-	busInit(&bus, rom);
+	busInit(&bus, rom, _gameCallback);
 
 	cpuInit(cpu, bus);
 	cpuLoad(cpu, CODE, SIZE);
@@ -1591,76 +1625,7 @@ static bool _handleInput(CPU *cpu) {
 
 	return false;
 }
-
-static SDL_Color _color(const uint8_t BYTE) {
-	switch( BYTE ) {
-		case 0:
-			return (SDL_Color){0x00, 0x00, 0x00, 0xFF};
-		case 1:
-			return (SDL_Color){0xFF, 0xFF, 0xFF, 0xFF};
-		case 2:
-		case 9:
-			return (SDL_Color){0x80, 0x80, 0x80, 0xFF};
-		case 3:
-		case 10:
-			return (SDL_Color){0xFF, 0x00, 0x00, 0xFF};
-		case 4:
-		case 11:
-			return (SDL_Color){0x00, 0xFF, 0x00, 0xFF};
-		case 5:
-		case 12:
-			return (SDL_Color){0x00, 0x00, 0xFF, 0xFF};
-		case 6:
-		case 13:
-			return (SDL_Color){0xFF, 0x00, 0xFF, 0xFF};
-		case 7:
-		case 14:
-			return (SDL_Color){0xFF, 0xFF, 0x00, 0xFF};
-		default:
-			return (SDL_Color){0x00, 0xFF, 0xFF, 0xFF};
-	}
-}
-
-static bool _readScreen(CPU *cpu, uint8_t frame[32 * 3 * 32]) {
-	uint16_t frameIdx = 0;
-	bool update = false;
-
-	for( uint16_t i = 0x0200; i < 0x0600; ++i ) {
-		const SDL_Color COLOR = _color(cpuRead(cpu, i));
-
-		const uint8_t R = COLOR.r;
-		const uint8_t G = COLOR.g;
-		const uint8_t B = COLOR.b;
-
-		if( frame[frameIdx] != R || frame[frameIdx + 1] != G ||
-			frame[frameIdx + 2] != B ) {
-			frame[frameIdx] = R;
-			frame[frameIdx + 1] = G;
-			frame[frameIdx + 2] = B;
-			update = true;
-		}
-
-		frameIdx += 3;
-	}
-
-	return update;
-}
-
-static bool _main(CPU *cpu, uint8_t frame[32 * 3 * 32]) {
-	if( _handleInput(cpu) ) {
-		return true;
-	}
-
-	cpuWrite(cpu, 0xFE, rand() & 0xF);
-
-	if( _readScreen(cpu, frame) ) {
-		SDL_UpdateTexture(gScreen.texture, NULL, frame, 32 * 3);
-		SDL_RenderCopy(gScreen.renderer, gScreen.texture, NULL, NULL);
-		SDL_RenderPresent(gScreen.renderer);
-	}
-
-	return false;
-}*/
+*/
 
 void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 	printf("%04X  ", pc);
@@ -1699,24 +1664,21 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 
 		case M_ZEROPAGE: {
 			const uint8_t ADDRESS = cpuRead(cpu, pc + 1);
-			printf("$%02X = %02X                    ", ADDRESS,
-				   cpuRead(cpu, ADDRESS));
+			printf("$%02X                         ", ADDRESS);
 		} break;
 
 		case M_ZEROPAGE_X: {
 			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("$%02X,X @ %02x = %02X             ", ADDRESS, COMPUTED,
-				   cpuRead(cpu, COMPUTED));
+			printf("$%02X,X @ %02x                  ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_ZEROPAGE_Y: {
 			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("$%02X,Y @ %02X = %02X             ", ADDRESS, COMPUTED,
-				   cpuRead(cpu, COMPUTED));
+			printf("$%02X,Y @ %02X                  ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_RELATIVE: {
@@ -1728,48 +1690,44 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 			++pc;
 			const uint16_t ADDRESS = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("$%04X = %02X                  ", ADDRESS,
-				   cpuRead(cpu, ADDRESS));
+			printf("$%04X                       ", ADDRESS);
 		} break;
 
 		case M_ABSOLUTE_X: {
 			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("$%04X,X @ %04X = %02X         ", ADDRESS, COMPUTED,
-				   cpuRead(cpu, COMPUTED));
+			printf("$%04X,X @ %04X              ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_ABSOLUTE_Y: {
 			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("$%04X,Y @ %04X = %02X         ", ADDRESS, COMPUTED,
-				   cpuRead(cpu, COMPUTED));
+			printf("$%04X,Y @ %04X              ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_INDIRECT: {
 			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("($%04X) = %04X              ", ADDRESS, COMPUTED);
+			printf("($%04X)                     ", ADDRESS);
 		} break;
 
 		case M_INDIRECT_X: {
 			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("($%02X,X) @ %02X = %04X = %02X    ", ADDRESS,
-				   (ADDRESS + cpu->regX) & 0xFF, COMPUTED,
-				   cpuRead(cpu, COMPUTED));
+			printf("($%02X,X) @ %02X                ", ADDRESS,
+				   (ADDRESS + cpu->regX) & 0xFF);
 		} break;
 
 		case M_INDIRECT_Y: {
 			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
 			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
 			--pc;
-			printf("($%02X),Y = %04X @ %04X = %02X  ", ADDRESS,
-				   (COMPUTED - cpu->regY), COMPUTED, cpuRead(cpu, COMPUTED));
+			printf("($%02X),Y = %04X @ %04X       ", ADDRESS,
+				   (COMPUTED - cpu->regY), COMPUTED);
 		} break;
 
 		case M_IMPLIED:
@@ -1781,7 +1739,24 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 	}
 
 	printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X\n", cpu->regA, cpu->regX,
-		   cpu->regY, cpu->status, cpu->stack);
+		   cpu->regY, cpu->status.bits, cpu->stack);
+}
+
+static uint16_t _interruptNMI(CPU *cpu, const uint16_t PC) {
+	_push16(cpu, PC);
+
+	CPUStatus status = cpu->status;
+	status.bFlag1 = 0;
+	status.bFlag2 = 1;
+
+	_push(cpu, status.bits);
+	cpu->status.interrupt = 1;
+
+	busTick(&cpu->bus, 2);
+	
+	cpu->bus.ppu.nmiInterrupt = false;
+
+	return cpuRead16(cpu, 0xFFFA);
 }
 
 void cpuRun(CPU *cpu) {
@@ -1789,11 +1764,17 @@ void cpuRun(CPU *cpu) {
 	struct timespec x = {.tv_nsec = 999999};
 
 	register uint16_t pc = cpuRead16(cpu, 0xFFFC);
+	register uint16_t pcState = 0;
 
 	while( true ) {
 		nanosleep(&x, &x);
 
+		if( cpu->bus.ppu.nmiInterrupt ) {
+			pc = _interruptNMI(cpu, pc);
+		}
+
 		const uint8_t OP = cpuRead(cpu, pc++);
+		pcState = pc;
 
 		switch( OP ) {
 			case 0x00: /* BRK */
@@ -1816,8 +1797,14 @@ void cpuRun(CPU *cpu) {
 
 			default: {
 				const Op OPERATION = OPS[OP];
+
 				cpuTrace(cpu, pc - 1, OPERATION);
 				pc = OPERATION.fn(cpu, pc, OPERATION.mode);
+
+				busTick(&cpu->bus, OPERATION.cycles);
+				if( pcState == pc ) {
+					pc += (uint16_t)(OPERATION.bytes - 1);
+				}
 			}
 		}
 	}

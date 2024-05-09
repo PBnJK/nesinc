@@ -2,12 +2,11 @@
 #include "common.h"
 #include "error.h"
 #include "screen.h"
+#include "cpu.h"
+#include "rom.h"
 #include "test.h"
 
 int main(int argc, char *argv[]) {
-	UNUSED(argc);
-	UNUSED(argv);
-
 	if( SDL_Init(SDL_INIT_VIDEO) < 0 ) {
 		errPrint(C_RED,
 				 "Couldn't initialize SDL.\n"
@@ -17,11 +16,19 @@ int main(int argc, char *argv[]) {
 	}
 
 	screenInit(&gScreen);
-	if( testRun() == true ) {
-		screenFree(&gScreen);
+
+	if( argc == 2 ) {
+		ROM rom; /* TODO: move into fn */
+		romCreateFromFile(&rom, argv[1]);
+		CPU cpu;
+		cpuInitFromROM(&cpu, rom);
+		cpuRun(&cpu);
+
 		return 0;
 	}
-
+	
+	const bool TEST_RESULT = testRun();
 	screenFree(&gScreen);
-	return 2;
+
+	return TEST_RESULT ? 0 : 2;
 }

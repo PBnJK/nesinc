@@ -19,21 +19,32 @@
  * └───────── Negative
  */
 
-#define ST_CARRY (1u << 0)
-#define ST_ZERO (1u << 1)
-#define ST_INTR (1u << 2)
-#define ST_DECIMAL (1u << 3)
-#define ST_BFLAG (1u << 4)
-#define ST_UNUSED (1u << 5)
-#define ST_OVERFLOW (1u << 6)
-#define ST_NEGATIVE (1u << 7)
+#define BFLAG1_BIT (uint8_t)(1 << 4)
+#define BFLAG2_BIT (uint8_t)(1 << 5)
+#define OVERFLOW_BIT (uint8_t)(1 << 6)
+#define SIGN_BIT (uint8_t)(1 << 7)
+
+typedef union _CPUStatus {
+	struct {
+		uint8_t carry : 1;
+		uint8_t zero : 1;
+		uint8_t interrupt : 1;
+		uint8_t decimal : 1;
+		uint8_t bFlag1 : 1;
+		uint8_t bFlag2 : 1;
+		uint8_t overflow : 1;
+		uint8_t negative : 1;
+	};
+
+	uint8_t bits;
+} CPUStatus;
 
 typedef struct _CPU {
 	uint8_t regA; /* Register A */
 	uint8_t regX; /* Register X */
 	uint8_t regY; /* Register Y */
 
-	uint8_t status;
+	CPUStatus status;
 
 	uint8_t stack; /* Stack "pointer" ($1000-$10FF) */
 

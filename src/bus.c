@@ -23,22 +23,57 @@ static uint8_t _readPrgRom(Bus *bus, uint16_t address) {
 	return bus->rom.prgRom[address];
 }
 
-void busInit(Bus *bus, ROM rom) {
+void busInit(Bus *bus, ROM rom, BUS_CALLBACK_FN) {
 	memset(bus->cpuVRAM, 0, 2048);
+
 	bus->rom = rom;
+	bus->cycles = 0;
+	bus->callback = callback;
+
+	ppuInit(&bus->ppu, bus->rom.chrRom, bus->rom.mirroring);
 }
 
 uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
-	if( ADDRESS <= RAM_MIRRORS_END ) {
-		return bus->cpuVRAM[ADDRESS & RAM_ADDRESS_SPACE];
-	}
+	switch( ADDRESS ) {
+		case 0 ... RAM_MIRRORS_END:
+			return bus->cpuVRAM[ADDRESS & RAM_ADDRESS_SPACE];
 
-	if( ADDRESS >= PPU_REGISTERS && ADDRESS <= PPU_REGISTERS_MIRRORS_END ) {
-		const uint16_t MIRROR = (ADDRESS & PPU_REGISTERS_ADDRESS_SPACE);
-		(void)MIRROR;
-	}
+		case 0x2000:
+		case 0x2001:
+		case 0x2003:
+		case 0x2005:
+		case 0x2006:
+		case 0x4014:
+			errPrint(C_RED, "Attempted to read from write-only @ %04X\n",
+					 ADDRESS);
+			exit(4);
 
-	return _readPrgRom(bus, ADDRESS);
+		case 0x2002: {
+			const uint8_t RESULT = bus->ppu.status.bits;
+			bus->ppu.status.vblankStarted = 0;
+			return RESULT;
+		} 
+
+		case 0x2004:
+			return ppuReadOAM(&bus->ppu);
+
+		case 0x2007:
+			return ppuRead(&bus->ppu);
+
+		case 0x2008 ... PPU_REGISTERS_MIRRORS_END:
+			return busRead(bus, ADDRESS & PPU_REGISTERS_ADDRESS_SPACE);
+
+		case 0x4016:
+		case 0x4017: /* joypad */
+			return 0;
+
+		case 0x8000 ... 0xFFFF:
+			return _readPrgRom(bus, ADDRESS);
+
+		default:
+			errPrint(C_YELLOW, "Ignoring read @ %04X\n", ADDRESS);
+			return 0;
+	}
 }
 
 uint16_t busRead16(Bus *bus, const uint16_t ADDRESS) {
@@ -49,21 +84,82 @@ uint16_t busRead16(Bus *bus, const uint16_t ADDRESS) {
 }
 
 void busWrite(Bus *bus, const uint16_t ADDRESS, const uint8_t VALUE) {
-	if( ADDRESS <= RAM_MIRRORS_END ) {
-		bus->cpuVRAM[ADDRESS & RAM_ADDRESS_SPACE] = VALUE;
-		return;
-	}
+	switch( ADDRESS ) {
+		case 0 ... RAM_MIRRORS_END:
+			bus->cpuVRAM[ADDRESS & RAM_ADDRESS_SPACE] = VALUE;
+			return;
 
-	if( ADDRESS >= PPU_REGISTERS && ADDRESS <= PPU_REGISTERS_MIRRORS_END ) {
-		// TODO: PPU not yet implemented
-	}
+		case 0x2000:
+			ppuWriteControl(&bus->ppu, VALUE);
+			return;
 
-	errPrint(C_RED, "Attempted to write to PRGROM address %04x (read-only)",
-			 ADDRESS);
-	exit(53);
+		case 0x2001:
+			ppuWriteMask(&bus->ppu, VALUE);
+			return;
+
+		case 0x2003:
+			ppuWriteOAMAddr(&bus->ppu, VALUE);
+			return;
+
+		case 0x2004:
+			ppuWriteOAM(&bus->ppu, VALUE);
+			return;
+
+		case 0x2005:
+			ppuWriteScroll(&bus->ppu, VALUE);
+			return;
+
+		case 0x2006:
+			ppuWriteAddr(&bus->ppu, VALUE);
+			return;
+
+		case 0x2007:
+			ppuWrite(&bus->ppu, VALUE);
+			return;
+
+		case 0x2008 ... PPU_REGISTERS_MIRRORS_END:
+			printf("1: %04X=%04X\n", ADDRESS, ADDRESS & 0x2007);
+			busWrite(bus, ADDRESS & 0x2007, VALUE);
+			return;
+
+		case 0x4000 ... 0x4013:
+		case 0x4015: /* APU */
+			return;
+
+		case 0x4014: {
+			uint8_t buffer[256] = {0};
+			const uint16_t HI = VALUE << 8;
+
+			for( uint16_t i = 0; i < 256; ++i ) {
+				buffer[i] = busRead(bus, HI + i);
+			}
+
+			ppuWriteOAMDMA(&bus->ppu, buffer);
+		}
+			return;
+
+		case 0x4016:
+		case 0x4017: /* joypad */
+			return;
+
+		case 0x8000 ... 0xFFFF:
+			errPrint(C_RED, "Attempted to write to ROM @ %04X\n", ADDRESS);
+			exit(4);
+
+		default:
+			errPrint(C_YELLOW, "Ignoring write @ %04X\n", ADDRESS);
+	}
 }
 
 void busWrite16(Bus *bus, const uint16_t ADDRESS, const uint16_t VALUE) {
 	busWrite(bus, ADDRESS, (uint8_t)(VALUE & 0xFF));
 	busWrite(bus, ADDRESS + 1, (uint8_t)(VALUE >> 8));
+}
+
+void busTick(Bus *bus, const uint8_t CYCLES) {
+	bus->cycles += CYCLES;
+
+	if( ppuTick(&bus->ppu, CYCLES * 3) ) {
+		bus->callback(&bus->ppu);
+	}
 }

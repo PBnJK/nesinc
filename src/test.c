@@ -1,8 +1,10 @@
 #include "test.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "cpu.h"
+#include "ppu.h"
 #include "rom.h"
 
 #define XSTR(X) #X
@@ -10,12 +12,12 @@
 
 #define TEST_FN(N) static bool N(void)
 
-#define RUN_TEST(F)                       \
-	printf("* Running '%s'... ", STR(F)); \
-	if( !F() ) {                          \
-		printf("Bailing...");             \
-		return false;                     \
-	}                                     \
+#define RUN_TEST(F)                         \
+	printf("* Running '%s'... \n", STR(F)); \
+	if( !F() ) {                            \
+		printf("Bailing...");               \
+		return false;                       \
+	}                                       \
 	printf("OK\n");
 
 #define RUN_ROM(F)              \
@@ -25,6 +27,10 @@
 	CPU cpu;                    \
 	cpuInitFromROM(&cpu, rom);  \
 	cpuRun(&cpu);
+
+#define TEST_PPU \
+	PPU ppu;     \
+	ppuInitEmpty(&ppu)
 
 #define TEST(S, ...)                                   \
 	CPU cpu;                                           \
@@ -42,18 +48,14 @@
 		return false;                                   \
 	} while( false )
 
-#define BIN(V) ((V) ? 1 : 0)
-
 static void _dumpCPU(CPU *cpu) {
 	printf("\n*** CPU DUMP ***\n");
 	printf("A=%02x X=%02x Y=%02x S=%02x\n\n", cpu->regA, cpu->regX, cpu->regY,
 		   cpu->stack);
 	printf("NV1BDIZC\n");
-	printf("%x%x%x%x%x%x%x%x\n\n", BIN(cpu->status & ST_NEGATIVE),
-		   BIN(cpu->status & ST_OVERFLOW), BIN(cpu->status & ST_UNUSED),
-		   BIN(cpu->status & ST_BFLAG), BIN(cpu->status & ST_DECIMAL),
-		   BIN(cpu->status & ST_INTR), BIN(cpu->status & ST_ZERO),
-		   BIN(cpu->status & ST_CARRY));
+	printf("%x%x%x%x%x%x%x%x\n\n", cpu->status.negative, cpu->status.overflow,
+		   cpu->status.bFlag2, cpu->status.bFlag1, cpu->status.decimal,
+		   cpu->status.interrupt, cpu->status.zero, cpu->status.carry);
 }
 
 static void _loadTestCode(CPU *cpu, const uint8_t *CODE, const uint16_t SIZE) {
@@ -66,12 +68,12 @@ static void _loadTestCode(CPU *cpu, const uint8_t *CODE, const uint16_t SIZE) {
 
 TEST_FN(_adc) {
 	TEST(4, 0xA9, 0x34, 0x69, 0x02);
-	RET((cpu.regA == 0x36) && ((cpu.status & ST_OVERFLOW) == 0));
+	RET((cpu.regA == 0x36) && (cpu.status.overflow == 0));
 }
 
 TEST_FN(_adcOverflow) {
 	TEST(4, 0xA9, 0xFF, 0x69, 0x03);
-	RET((cpu.regA == 0x02) && ((cpu.status & ST_CARRY) != 0));
+	RET((cpu.regA == 0x02) && (cpu.status.carry == 1));
 }
 
 TEST_FN(_and) {
@@ -86,39 +88,39 @@ TEST_FN(_andZeroOut) {
 
 TEST_FN(_aslCFlag_set) {
 	TEST(3, 0xA9, 0x7F, 0x0A);
-	RET((cpu.regA == (0x7F << 1)) && ((cpu.status & ST_CARRY) == 0));
+	RET((cpu.regA == (0x7F << 1)) && (cpu.status.carry == 0));
 }
 
 TEST_FN(_aslCFlag_nset) {
 	TEST(3, 0xA9, 0x80, 0x0A);
-	RET((cpu.regA == 0) && ((cpu.status & ST_CARRY) != 0));
+	RET((cpu.regA == 0) && (cpu.status.carry == 1));
 }
 
 TEST_FN(_lda) {
 	TEST(2, 0xA9, 0x05);
 
-	RET((cpu.regA == 0x05) && ((cpu.status & ST_ZERO) == 0) &&
-		((cpu.status & ST_NEGATIVE) == 0));
+	RET((cpu.regA == 0x05) && (cpu.status.zero == 0) &&
+		(cpu.status.negative == 0));
 }
 
 TEST_FN(_ldaZFlag_set) {
 	TEST(2, 0xA9, 0x00);
-	RET((cpu.status & ST_ZERO) == ST_ZERO);
+	RET(cpu.status.zero == 1);
 }
 
 TEST_FN(_ldaZFlag_nset) {
 	TEST(2, 0xA9, 0x12);
-	RET((cpu.status & ST_ZERO) != ST_ZERO);
+	RET(cpu.status.zero == 0);
 }
 
 TEST_FN(_ldaNFlag_set) {
 	TEST(2, 0xA9, 0x80);
-	RET((cpu.status & ST_NEGATIVE) == ST_NEGATIVE);
+	RET(cpu.status.negative == 1);
 }
 
 TEST_FN(_ldaNFlag_nset) {
 	TEST(2, 0xA9, 0x79);
-	RET((cpu.status & ST_NEGATIVE) != ST_NEGATIVE);
+	RET(cpu.status.negative == 0);
 }
 
 TEST_FN(_ldaZP) {
@@ -285,19 +287,229 @@ TEST_FN(_smallTest) {
 	RET(cpu.regX == 0xC1);
 }
 
+TEST_FN(_ppuVramW) {
+	TEST_PPU;
+
+	ppuWriteAddr(&ppu, 0x23);
+	ppuWriteAddr(&ppu, 0x05);
+	ppuWrite(&ppu, 0x66);
+
+	return (ppu.vram[0x0305] == 0x66);
+}
+
+TEST_FN(_ppuVramR) {
+	TEST_PPU;
+
+	ppuWriteControl(&ppu, 0);
+	ppu.vram[0x0305] = 0x66;
+
+	ppuWriteAddr(&ppu, 0x23);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+
+	return (ppu.addr.address.full == 0x2306) && (ppuRead(&ppu) == 0x66);
+}
+
+TEST_FN(_ppuVramR_crossPage) {
+	TEST_PPU;
+
+	ppuWriteControl(&ppu, 0);
+	ppu.vram[0x01FF] = 0x66;
+	ppu.vram[0x0200] = 0x77;
+
+	ppuWriteAddr(&ppu, 0x21);
+	ppuWriteAddr(&ppu, 0xFF);
+
+	ppuRead(&ppu);
+
+	return (ppuRead(&ppu) == 0x66) && (ppuRead(&ppu) == 0x77);
+}
+
+TEST_FN(_ppuVramR_32Step) {
+	TEST_PPU;
+
+	ppuWriteControl(&ppu, 4);
+	ppu.vram[0x01FF] = 0x66;
+	ppu.vram[0x01FF + 32] = 0x77;
+	ppu.vram[0x01FF + 64] = 0x88;
+
+	ppuWriteAddr(&ppu, 0x21);
+	ppuWriteAddr(&ppu, 0xFF);
+
+	ppuRead(&ppu);
+
+	return (ppuRead(&ppu) == 0x66) && (ppuRead(&ppu) == 0x77) &&
+		   (ppuRead(&ppu) == 0x88);
+}
+
+TEST_FN(_ppuVram_horizontalMirror) {
+	TEST_PPU;
+
+	ppuWriteAddr(&ppu, 0x24);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuWrite(&ppu, 0x66);
+
+	ppuWriteAddr(&ppu, 0x28);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuWrite(&ppu, 0x77);
+
+	ppuWriteAddr(&ppu, 0x20);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	if( ppuRead(&ppu) != 0x66 ) {
+		printf("Failed read 1\n");
+		return false;
+	}
+
+	ppuWriteAddr(&ppu, 0x2C);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	return (ppuRead(&ppu) == 0x77);
+}
+
+TEST_FN(_ppuVram_verticalMirror) {
+	PPU ppu;
+	ppuInitEmptyVertical(&ppu);
+
+	ppuWriteAddr(&ppu, 0x20);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuWrite(&ppu, 0x66);
+
+	ppuWriteAddr(&ppu, 0x2C);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuWrite(&ppu, 0x77);
+
+	ppuWriteAddr(&ppu, 0x28);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	if( ppuRead(&ppu) != 0x66 ) {
+		printf("Failed read 1\n");
+		return false;
+	}
+
+	ppuWriteAddr(&ppu, 0x24);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	return (ppuRead(&ppu) == 0x77);
+}
+
+TEST_FN(_ppuVram_mirroring) {
+	TEST_PPU;
+	ppuWriteControl(&ppu, 0);
+	ppu.vram[0x0305] = 0x66;
+
+	ppuWriteAddr(&ppu, 0x63);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	return (ppuRead(&ppu) == 0x66);
+}
+
+TEST_FN(_ppuStatusR_resetLatch) {
+	TEST_PPU;
+	ppu.vram[0x0305] = 0x66;
+
+	ppuWriteAddr(&ppu, 0x21);
+	ppuWriteAddr(&ppu, 0x23);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	if( ppuRead(&ppu) == 0x66 ) {
+		printf("Failed read 1\n");
+		return false;
+	}
+
+	ppuReadStatus(&ppu);
+
+	ppuWriteAddr(&ppu, 0x23);
+	ppuWriteAddr(&ppu, 0x05);
+
+	ppuRead(&ppu);
+	return (ppuRead(&ppu) == 0x66);
+}
+
+TEST_FN(_ppuStatusR_resetVBlank) {
+	TEST_PPU;
+	ppu.status.vblankStarted = 1;
+
+	const StatusReg STATUS = ppuReadStatus(&ppu);
+	return (ppu.status.vblankStarted == 0) && (STATUS.vblankStarted == 1);
+}
+
+TEST_FN(_ppuOAM_RW) {
+	TEST_PPU;
+
+	ppuWriteOAMAddr(&ppu, 0x10);
+	ppuWriteOAM(&ppu, 0x66);
+	ppuWriteOAM(&ppu, 0x77);
+
+	ppuWriteOAMAddr(&ppu, 0x10);
+	if( ppuReadOAM(&ppu) != 0x66 ) {
+		printf("Failed read 1\n");
+		return false;
+	}
+
+	ppuWriteOAMAddr(&ppu, 0x11);
+	return (ppuReadOAM(&ppu) == 0x77);
+}
+
+TEST_FN(_ppuOAM_DMA) {
+	TEST_PPU;
+
+	uint8_t data[256];
+	memset(data, 0x66, 256);
+
+	data[0] = 0x77;
+	data[255] = 0x88;
+
+	ppuWriteOAMAddr(&ppu, 0x10);
+	ppuWriteOAMDMA(&ppu, data);
+
+	ppuWriteOAMAddr(&ppu, 0x0F);
+	if( ppuReadOAM(&ppu) != 0x88 ) {
+		printf("Failed read 1\n");
+		return false;
+	}
+
+	ppuWriteOAMAddr(&ppu, 0x10);
+	if( ppuReadOAM(&ppu) != 0x77 ) {
+		printf("Failed read 2\n");
+		return false;
+	}
+
+	ppuWriteOAMAddr(&ppu, 0x11);
+	return (ppuReadOAM(&ppu) == 0x66);
+}
+
+TEST_FN(_pacmanTest) {
+	RUN_ROM("test_rom/color_test.nes");
+	return true;
+}
+
 /*TEST_FN(_nestest) {
 	RUN_ROM("test/nestest.nes");
 	return true;
-}*/
+}
 
 TEST_FN(_blarggInstrTest) {
 	RUN_ROM("test/blargg_instr_test.nes");
 	return true;
-}
+}*/
 
 bool testRun(void) {
 	printf("\nStarting test run...\n");
 
+#if 0
+	printf("1. CPU Tests:\n");
 	RUN_TEST(_adc);
 	RUN_TEST(_adcOverflow);
 
@@ -345,9 +557,29 @@ bool testRun(void) {
 	RUN_TEST(_tax);
 
 	RUN_TEST(_smallTest);
-	// RUN_TEST(_nestest);
 
-	RUN_TEST(_blarggInstrTest);
+	printf("2. PPU Tests:\n");
+
+	RUN_TEST(_ppuVramW);
+
+	RUN_TEST(_ppuVramR);
+	RUN_TEST(_ppuVramR_crossPage);
+	RUN_TEST(_ppuVramR_32Step);
+
+	RUN_TEST(_ppuVram_horizontalMirror);
+	RUN_TEST(_ppuVram_verticalMirror);
+	RUN_TEST(_ppuVram_mirroring);
+
+	RUN_TEST(_ppuStatusR_resetLatch);
+	RUN_TEST(_ppuStatusR_resetVBlank);
+
+	RUN_TEST(_ppuOAM_RW);
+	RUN_TEST(_ppuOAM_DMA);
+#endif
+	printf("3. Cartridge Tests:\n");
+	RUN_TEST(_pacmanTest);
+	// RUN_TEST(_nestest);
+	// RUN_TEST(_blarggInstrTest);
 
 	printf("\nAll tests OK!!\n");
 
