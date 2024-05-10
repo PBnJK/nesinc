@@ -45,8 +45,6 @@ void addrIncrement(AddrReg *addr, const uint8_t INCREMENT) {
 	if( VALUE > 0x3FFF ) {
 		addrSet(addr, VALUE & 0x3FFF);
 	}
-	
-	printf("+ + Address is now %04X\n", addr->address.full);
 }
 
 void addrResetLatch(AddrReg *addr) {

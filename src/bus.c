@@ -52,7 +52,7 @@ uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
 			const uint8_t RESULT = bus->ppu.status.bits;
 			bus->ppu.status.vblankStarted = 0;
 			return RESULT;
-		} 
+		}
 
 		case 0x2004:
 			return ppuReadOAM(&bus->ppu);

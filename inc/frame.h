@@ -49,6 +49,5 @@ void frameInit(Frame *frame);
 
 void frameSetPixel(Frame *frame, const size_t X, const size_t Y,
 				   SDL_Color color);
-Frame frameShowTile(uint8_t *CHR_ROM, const size_t BANK_N, const size_t TILE_N);
 
 #endif	// GUARD_NESINC_FRAME_H_

@@ -490,25 +490,9 @@ TEST_FN(_ppuOAM_DMA) {
 	return (ppuReadOAM(&ppu) == 0x66);
 }
 
-TEST_FN(_pacmanTest) {
-	RUN_ROM("test_rom/color_test.nes");
-	return true;
-}
-
-/*TEST_FN(_nestest) {
-	RUN_ROM("test/nestest.nes");
-	return true;
-}
-
-TEST_FN(_blarggInstrTest) {
-	RUN_ROM("test/blargg_instr_test.nes");
-	return true;
-}*/
-
 bool testRun(void) {
 	printf("\nStarting test run...\n");
 
-#if 0
 	printf("1. CPU Tests:\n");
 	RUN_TEST(_adc);
 	RUN_TEST(_adcOverflow);
@@ -575,11 +559,6 @@ bool testRun(void) {
 
 	RUN_TEST(_ppuOAM_RW);
 	RUN_TEST(_ppuOAM_DMA);
-#endif
-	printf("3. Cartridge Tests:\n");
-	RUN_TEST(_pacmanTest);
-	// RUN_TEST(_nestest);
-	// RUN_TEST(_blarggInstrTest);
 
 	printf("\nAll tests OK!!\n");
 

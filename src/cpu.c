@@ -1,6 +1,5 @@
 #include "cpu.h"
 
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1753,7 +1752,7 @@ static uint16_t _interruptNMI(CPU *cpu, const uint16_t PC) {
 	cpu->status.interrupt = 1;
 
 	busTick(&cpu->bus, 2);
-	
+
 	cpu->bus.ppu.nmiInterrupt = false;
 
 	return cpuRead16(cpu, 0xFFFA);
@@ -1761,14 +1760,11 @@ static uint16_t _interruptNMI(CPU *cpu, const uint16_t PC) {
 
 void cpuRun(CPU *cpu) {
 	srand((unsigned int)time(NULL));
-	struct timespec x = {.tv_nsec = 999999};
 
 	register uint16_t pc = cpuRead16(cpu, 0xFFFC);
 	register uint16_t pcState = 0;
 
 	while( true ) {
-		nanosleep(&x, &x);
-
 		if( cpu->bus.ppu.nmiInterrupt ) {
 			pc = _interruptNMI(cpu, pc);
 		}
@@ -1798,7 +1794,7 @@ void cpuRun(CPU *cpu) {
 			default: {
 				const Op OPERATION = OPS[OP];
 
-				cpuTrace(cpu, pc - 1, OPERATION);
+				/* cpuTrace(cpu, pc - 1, OPERATION); */
 				pc = OPERATION.fn(cpu, pc, OPERATION.mode);
 
 				busTick(&cpu->bus, OPERATION.cycles);

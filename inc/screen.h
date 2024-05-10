@@ -4,8 +4,8 @@
 #include "SDL2/SDL.h"
 #include "common.h"
 
-#define SCR_W 256
-#define SCR_H 240
+#define SCR_W 256u
+#define SCR_H 240u
 
 #define SCR_SCALE 2.0f
 

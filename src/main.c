@@ -1,9 +1,9 @@
 #include "SDL2/SDL.h"
 #include "common.h"
-#include "error.h"
-#include "screen.h"
 #include "cpu.h"
+#include "error.h"
 #include "rom.h"
+#include "screen.h"
 #include "test.h"
 
 int main(int argc, char *argv[]) {
@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
 
 		return 0;
 	}
-	
+
 	const bool TEST_RESULT = testRun();
 	screenFree(&gScreen);
 

@@ -1,7 +1,7 @@
 #include "ppu.h"
 
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "error.h"
@@ -78,8 +78,8 @@ void ppuWrite(PPU *ppu, const uint8_t VALUE) {
 			ppu->chrRom[address] = VALUE;
 			break;
 
-			//errPrint(C_RED, "Attempted to write to CHRROM @ %04X", address);
-			//exit(3);
+			// errPrint(C_RED, "Attempted to write to CHRROM @ %04X", address);
+			// exit(3);
 
 		case 0x2000 ... 0x2FFF:
 			ppu->vram[_mirrorVramAddress(ppu, address)] = VALUE;
@@ -155,12 +155,12 @@ uint8_t ppuRead(PPU *ppu) {
 		}
 
 		case 0x3F00 ... 0x3FFF: {
-			ppu->internalBuffer = address - 0x1000;
-			if( address == 0x3F10 || address == 0x3F14 || address == 0x3F18 || address == 0x3F1C ) { 
+			ppu->internalBuffer = (uint8_t)(address - 0x1000);
+			if( address == 0x3F10 || address == 0x3F14 || address == 0x3F18 ||
+				address == 0x3F1C ) {
 				address -= 0x10;
 			}
 
-			printf("set int buf to %02X\n", ppu->internalBuffer);
 			return ppu->palTable[address - 0x3F00];
 		}
 
@@ -187,7 +187,7 @@ StatusReg ppuReadStatus(PPU *ppu) {
 
 bool ppuTick(PPU *ppu, const uint8_t CYCLES) {
 	ppu->cycles += CYCLES;
-	
+
 	if( ppu->cycles >= 341 ) {
 		ppu->cycles -= 341;
 		++ppu->scanline;
@@ -216,7 +216,7 @@ bool ppuTick(PPU *ppu, const uint8_t CYCLES) {
 
 void _getBGPalette(PPU *ppu, const size_t COL, const size_t ROW,
 				   uint8_t palette[4]) {
-	const uint16_t ATTR_TABLE_IDX = (uint16_t)(ROW / 4 * 8 + COL / 4);
+	const uint16_t ATTR_TABLE_IDX = (uint16_t)((ROW / 4) * 8 + (COL / 4));
 	const uint8_t ATTR_BYTE = ppu->vram[0x03C0 + ATTR_TABLE_IDX];
 
 	uint8_t paletteIdx = 0;
@@ -227,10 +227,10 @@ void _getBGPalette(PPU *ppu, const size_t COL, const size_t ROW,
 			paletteIdx = ATTR_BYTE & 3;
 			break;
 		case 1:
-			paletteIdx = (ATTR_BYTE >> 2) & 3;
+			paletteIdx = (ATTR_BYTE >> 4) & 3;
 			break;
 		case 2:
-			paletteIdx = (ATTR_BYTE >> 4) & 3;
+			paletteIdx = (ATTR_BYTE >> 2) & 3;
 			break;
 		case 3:
 			paletteIdx = (ATTR_BYTE >> 6) & 3;
@@ -240,22 +240,23 @@ void _getBGPalette(PPU *ppu, const size_t COL, const size_t ROW,
 	uint8_t palStart = (uint8_t)(1 + (paletteIdx * 4));
 
 	palette[0] = ppu->palTable[0];
-	palette[1] = ppu->palTable[palStart++];
-	palette[2] = ppu->palTable[palStart++];
-	palette[3] = ppu->palTable[palStart];
+	palette[1] = ppu->palTable[palStart];
+	palette[2] = ppu->palTable[palStart + 1];
+	palette[3] = ppu->palTable[palStart + 2];
 }
 
 void _getSprPalette(PPU *ppu, const uint8_t IDX, uint8_t palette[4]) {
 	uint8_t palStart = (uint8_t)(0x11 + (IDX * 4));
 
-	palette[0] = ppu->palTable[0];
+	palette[0] = 0;
 	palette[1] = ppu->palTable[palStart++];
 	palette[2] = ppu->palTable[palStart++];
 	palette[3] = ppu->palTable[palStart];
 }
 
 void ppuRender(PPU *ppu) {
-	const uint16_t BANK = controlBGPatternAddr(&ppu->control);
+	const uint16_t BG_BANK = controlBGPatternAddr(&ppu->control);
+	const uint16_t SPR_BANK = controlSprPatternAddr(&ppu->control);
 
 	/* Draw BG */
 	for( uint16_t i = 0; i < 0x03C0; ++i ) {
@@ -265,7 +266,7 @@ void ppuRender(PPU *ppu) {
 		const uint8_t TILE_Y = (uint8_t)(i / 32);
 
 		uint8_t tile[16];
-		memcpy(tile, ppu->chrRom + (BANK + TILE_BYTE * 16), 16);
+		memcpy(tile, ppu->chrRom + (BG_BANK + TILE_BYTE * 16), 16);
 
 		uint8_t palette[4];
 		_getBGPalette(ppu, TILE_X, TILE_Y, palette);
@@ -290,30 +291,28 @@ void ppuRender(PPU *ppu) {
 	}
 
 	/* Draw sprites */
-	for( int16_t i = 252; i > 0; i -= 4 ) {
+	for( int16_t i = 252; i >= 0; i -= 4 ) {
 		const uint8_t TILE_Y = ppu->oam[i];
 		const uint8_t TILE_BYTE = ppu->oam[i + 1];
 		const uint8_t TILE_ATTR = ppu->oam[i + 2];
 		const uint8_t TILE_X = ppu->oam[i + 3];
 
 		const bool FLIP_V = ((TILE_ATTR >> 7) & 1) == 1;
-		const bool FLIP_H = ((TILE_ATTR >> 6) & 1) == 1;
+		const bool FLIP_H = ((TILE_ATTR >> 6) & 1) == 0;
 
 		const uint8_t PAL_INDEX = TILE_ATTR & 3;
 
 		uint8_t palette[4];
 		_getSprPalette(ppu, PAL_INDEX, palette);
 
-		const uint16_t BANK = controlSprPatternAddr(&ppu->control);
-
 		uint8_t tile[16];
-		memcpy(tile, ppu->chrRom + (BANK + TILE_BYTE * 16), 16);
+		memcpy(tile, ppu->chrRom + (SPR_BANK + TILE_BYTE * 16), 16);
 
 		for( uint8_t y = 0; y < 8; ++y ) {
 			uint8_t upper = tile[y];
 			uint8_t lower = tile[y + 8];
 
-			for( uint8_t x = 7; x != 255; --x ) {
+			for( uint8_t x = 0; x < 8; ++x ) {
 				const uint8_t VALUE =
 					(uint8_t)(((1 & lower) << 1) | (1 & upper));
 
@@ -323,8 +322,10 @@ void ppuRender(PPU *ppu) {
 				if( VALUE == 0 ) continue;
 				SDL_Color rgb = SYS_PAL[palette[VALUE]];
 
-				const size_t TX_FINAL = (size_t)(FLIP_H ? TILE_X + 7 - x : TILE_X + x);
-				const size_t TY_FINAL = (size_t)(FLIP_V ? TILE_Y + 7 - x : TILE_Y + x);
+				const size_t TX_FINAL =
+					(size_t)(FLIP_H ? TILE_X + 7 - x : TILE_X + x);
+				const size_t TY_FINAL =
+					(size_t)(FLIP_V ? TILE_Y + 7 - y : TILE_Y + y);
 
 				frameSetPixel(&ppu->frame, TX_FINAL, TY_FINAL, rgb);
 			}
