@@ -31,6 +31,9 @@ void busInit(Bus *bus, ROM rom, BUS_CALLBACK_FN) {
 	bus->callback = callback;
 
 	ppuInit(&bus->ppu, bus->rom.chrRom, bus->rom.mirroring);
+
+	joyInit(&bus->joy1);
+	joyInit(&bus->joy2);
 }
 
 uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
@@ -44,9 +47,7 @@ uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
 		case 0x2005:
 		case 0x2006:
 		case 0x4014:
-			errPrint(C_RED, "Attempted to read from write-only @ %04X\n",
-					 ADDRESS);
-			exit(4);
+			return 0;
 
 		case 0x2002: {
 			const uint8_t RESULT = bus->ppu.status.bits;
@@ -64,14 +65,15 @@ uint8_t busRead(Bus *bus, const uint16_t ADDRESS) {
 			return busRead(bus, ADDRESS & PPU_REGISTERS_ADDRESS_SPACE);
 
 		case 0x4016:
-		case 0x4017: /* joypad */
-			return 0;
+			return joyRead(&bus->joy1);
+
+		case 0x4017:
+			return joyRead(&bus->joy2);
 
 		case 0x8000 ... 0xFFFF:
 			return _readPrgRom(bus, ADDRESS);
 
 		default:
-			errPrint(C_YELLOW, "Ignoring read @ %04X\n", ADDRESS);
 			return 0;
 	}
 }
@@ -118,7 +120,6 @@ void busWrite(Bus *bus, const uint16_t ADDRESS, const uint8_t VALUE) {
 			return;
 
 		case 0x2008 ... PPU_REGISTERS_MIRRORS_END:
-			printf("1: %04X=%04X\n", ADDRESS, ADDRESS & 0x2007);
 			busWrite(bus, ADDRESS & 0x2007, VALUE);
 			return;
 
@@ -139,15 +140,16 @@ void busWrite(Bus *bus, const uint16_t ADDRESS, const uint8_t VALUE) {
 			return;
 
 		case 0x4016:
-		case 0x4017: /* joypad */
-			return;
+			joyWrite(&bus->joy1, VALUE);
+			break;
+
+		case 0x4017:
+			joyWrite(&bus->joy2, VALUE);
+			break;
 
 		case 0x8000 ... 0xFFFF:
 			errPrint(C_RED, "Attempted to write to ROM @ %04X\n", ADDRESS);
 			exit(4);
-
-		default:
-			errPrint(C_YELLOW, "Ignoring write @ %04X\n", ADDRESS);
 	}
 }
 
@@ -160,6 +162,6 @@ void busTick(Bus *bus, const uint8_t CYCLES) {
 	bus->cycles += CYCLES;
 
 	if( ppuTick(&bus->ppu, CYCLES * 3) ) {
-		bus->callback(&bus->ppu);
+		bus->callback(&bus->ppu, &bus->joy1, &bus->joy2);
 	}
 }

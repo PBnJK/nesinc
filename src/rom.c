@@ -29,10 +29,8 @@ bool romInit(ROM *rom, const uint8_t *RAW) {
 		return false;
 	}
 
-	/* Uses four screen mirroring? */
 	if( (RAW[6] & 8) != 0 ) {
 		rom->mirroring = FOUR_SCREEN;
-		/* Uses vertical mirroring? */
 	} else if( (RAW[6] & 1) != 0 ) {
 		rom->mirroring = VERTICAL;
 	} else {

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "rect.h"
 
 static uint16_t _mirrorVramAddress(PPU *ppu, const uint16_t ADDRESS) {
 	const uint16_t MIRRORED = (ADDRESS & 0x2FFF);
@@ -144,7 +145,7 @@ uint8_t ppuRead(PPU *ppu) {
 
 		case 0x2000 ... 0x2FFF: {
 			const uint8_t RESULT = ppu->internalBuffer;
-			ppu->internalBuffer = ppu->vram[_mirrorVramAddress(ppu, address)];
+			ppu->internalBuffer = ppuReadStatus(ppu).bits;
 			return RESULT;
 		}
 
@@ -185,10 +186,26 @@ StatusReg ppuReadStatus(PPU *ppu) {
 	return STATUS;
 }
 
+static bool _isZeroHit(PPU *ppu) {
+	const uint8_t TILE_X = ppu->oam[0];
+	const uint8_t TILE_Y = ppu->oam[3];
+
+	if( TILE_Y == ppu->scanline && TILE_X <= ppu->cycles &&
+		ppu->mask.showSpr ) {
+		return true;
+	}
+
+	return false;
+}
+
 bool ppuTick(PPU *ppu, const uint8_t CYCLES) {
 	ppu->cycles += CYCLES;
 
 	if( ppu->cycles >= 341 ) {
+		if( _isZeroHit(ppu) ) {
+			ppu->status.sprZeroHit = 1;
+		}
+
 		ppu->cycles -= 341;
 		++ppu->scanline;
 
@@ -199,6 +216,8 @@ bool ppuTick(PPU *ppu, const uint8_t CYCLES) {
 			if( ppu->control.generateNMI ) {
 				ppu->nmiInterrupt = true;
 			}
+
+			return false;
 		}
 
 		if( ppu->scanline >= 262 ) {
@@ -215,9 +234,9 @@ bool ppuTick(PPU *ppu, const uint8_t CYCLES) {
 }
 
 void _getBGPalette(PPU *ppu, const size_t COL, const size_t ROW,
-				   uint8_t palette[4]) {
+				   uint8_t attrTable[64], uint8_t palette[4]) {
 	const uint16_t ATTR_TABLE_IDX = (uint16_t)((ROW / 4) * 8 + (COL / 4));
-	const uint8_t ATTR_BYTE = ppu->vram[0x03C0 + ATTR_TABLE_IDX];
+	const uint8_t ATTR_BYTE = attrTable[ATTR_TABLE_IDX];
 
 	uint8_t paletteIdx = 0;
 
@@ -254,13 +273,15 @@ void _getSprPalette(PPU *ppu, const uint8_t IDX, uint8_t palette[4]) {
 	palette[3] = ppu->palTable[palStart];
 }
 
-void ppuRender(PPU *ppu) {
+static void _renderNametable(PPU *ppu, uint8_t nametable[1024], Rect viewport,
+							 const int64_t SHIFT_X, const int64_t SHIFT_Y) {
 	const uint16_t BG_BANK = controlBGPatternAddr(&ppu->control);
-	const uint16_t SPR_BANK = controlSprPatternAddr(&ppu->control);
 
-	/* Draw BG */
+	uint8_t attrTable[64];
+	memcpy(attrTable, nametable + 0x03C0, 64);
+
 	for( uint16_t i = 0; i < 0x03C0; ++i ) {
-		const uint8_t TILE_BYTE = ppu->vram[i];
+		const uint16_t TILE_BYTE = (uint16_t)nametable[i];
 
 		const uint8_t TILE_X = i % 32;
 		const uint8_t TILE_Y = (uint8_t)(i / 32);
@@ -269,7 +290,7 @@ void ppuRender(PPU *ppu) {
 		memcpy(tile, ppu->chrRom + (BG_BANK + TILE_BYTE * 16), 16);
 
 		uint8_t palette[4];
-		_getBGPalette(ppu, TILE_X, TILE_Y, palette);
+		_getBGPalette(ppu, TILE_X, TILE_Y, attrTable, palette);
 
 		for( uint8_t y = 0; y < 8; ++y ) {
 			uint8_t upper = tile[y];
@@ -284,13 +305,69 @@ void ppuRender(PPU *ppu) {
 
 				SDL_Color rgb = SYS_PAL[palette[VALUE]];
 
-				frameSetPixel(&ppu->frame, (size_t)(TILE_X * 8 + x),
-							  (size_t)(TILE_Y * 8 + y), rgb);
+				const size_t PX = (size_t)(TILE_X * 8 + x);
+				const size_t PY = (size_t)(TILE_Y * 8 + y);
+
+				if( PX >= viewport.x1 && PX < viewport.x2 &&
+					PY >= viewport.y1 && PY < viewport.y2 ) {
+					frameSetPixel(&ppu->frame, (size_t)(SHIFT_X + PX),
+								  (size_t)(SHIFT_Y + PY), rgb);
+				}
 			}
 		}
 	}
+}
+
+void ppuRender(PPU *ppu) {
+	/* Draw BG */
+	size_t scrollX = (size_t)ppu->scroll.x;
+	size_t scrollY = (size_t)ppu->scroll.y;
+
+	uint8_t mainNametable[1024];
+	uint8_t secNametable[1024];
+
+	if( ppu->mirroring == VERTICAL ) {
+		switch( controlNametableAddr(&ppu->control) ) {
+			case 0x2000:
+			case 0x2800:
+				memcpy(mainNametable, ppu->vram, 1024);
+				memcpy(secNametable, ppu->vram + 0x0400, 1024);
+				break;
+			case 0x2400:
+			case 0x2C00:
+				memcpy(mainNametable, ppu->vram + 0x0400, 1024);
+				memcpy(secNametable, ppu->vram, 1024);
+				break;
+		}
+	} else if( ppu->mirroring == HORIZONTAL ) {
+		switch( controlNametableAddr(&ppu->control) ) {
+			case 0x2000:
+			case 0x2400:
+				memcpy(mainNametable, ppu->vram, 1024);
+				memcpy(secNametable, ppu->vram + 0x0400, 1024);
+				break;
+			case 0x2800:
+			case 0x2C00:
+				memcpy(mainNametable, ppu->vram + 0x0400, 1024);
+				memcpy(secNametable, ppu->vram, 1024);
+				break;
+		}
+	}
+
+	_renderNametable(ppu, mainNametable, RECT(scrollX, scrollY, SCR_W, SCR_H),
+					 -((int64_t)scrollX), -((int64_t)scrollY));
+
+	if( (int64_t)(scrollX) > 0 ) {
+		const int64_t SX = (int64_t)(SCR_W) - scrollX;
+		_renderNametable(ppu, secNametable, RECT(0, 0, scrollX, SCR_H), SX, 0);
+	} else if( (int64_t)(scrollY) > 0 ) {
+		const int64_t SY = (int64_t)(SCR_H) - scrollY;
+		_renderNametable(ppu, secNametable, RECT(0, 0, SCR_W, scrollY), 0, SY);
+	}
 
 	/* Draw sprites */
+	const uint16_t SPR_BANK = controlSprPatternAddr(&ppu->control);
+
 	for( int16_t i = 252; i >= 0; i -= 4 ) {
 		const uint8_t TILE_Y = ppu->oam[i];
 		const uint8_t TILE_BYTE = ppu->oam[i + 1];

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "cpu.h"
+#include "joypad.h"
 #include "ppu.h"
 #include "rom.h"
 
@@ -11,6 +12,15 @@
 #define STR(X) XSTR(X)
 
 #define TEST_FN(N) static bool N(void)
+
+#define TEST_EQ(N)    \
+	if( !(N) ) {      \
+		return false; \
+	}
+#define TEST_NEQ(N)   \
+	if( (N) ) {       \
+		return false; \
+	}
 
 #define RUN_TEST(F)                         \
 	printf("* Running '%s'... \n", STR(F)); \
@@ -31,6 +41,10 @@
 #define TEST_PPU \
 	PPU ppu;     \
 	ppuInitEmpty(&ppu)
+
+#define TEST_JOY \
+	Joypad joy;  \
+	joyInit(&joy)
 
 #define TEST(S, ...)                                   \
 	CPU cpu;                                           \
@@ -490,6 +504,50 @@ TEST_FN(_ppuOAM_DMA) {
 	return (ppuReadOAM(&ppu) == 0x66);
 }
 
+TEST_FN(_joyStrobe) {
+	TEST_JOY;
+
+	joyWrite(&joy, 1);
+	joy.data.btnA = 1;
+
+	for( uint8_t _ = 0; _ < 10; ++_ ) {
+		TEST_EQ((joyRead(&joy) & 1) == 1);
+	}
+
+	return true;
+}
+
+TEST_FN(_joyStrobe_onoff) {
+	TEST_JOY;
+
+	joyWrite(&joy, 0);
+
+	joy.data.right = 1;
+	joy.data.left = 1;
+	joy.data.select = 1;
+	joy.data.btnB = 1;
+
+	for( uint8_t _ = 0; _ < 2; ++_ ) {
+		TEST_EQ((joyRead(&joy) & 1) == 0);
+		TEST_EQ((joyRead(&joy) & 1) == 1);
+		TEST_EQ((joyRead(&joy) & 1) == 1);
+		TEST_EQ((joyRead(&joy) & 1) == 0);
+		TEST_EQ((joyRead(&joy) & 1) == 0);
+		TEST_EQ((joyRead(&joy) & 1) == 0);
+		TEST_EQ((joyRead(&joy) & 1) == 1);
+		TEST_EQ((joyRead(&joy) & 1) == 1);
+
+		for( uint8_t _ = 0; _ < 10; ++_ ) {
+			TEST_EQ((joyRead(&joy) & 1) == 1);
+		}
+
+		joyWrite(&joy, 1);
+		joyWrite(&joy, 0);
+	}
+
+	return true;
+}
+
 bool testRun(void) {
 	printf("\nStarting test run...\n");
 
@@ -559,6 +617,9 @@ bool testRun(void) {
 
 	RUN_TEST(_ppuOAM_RW);
 	RUN_TEST(_ppuOAM_DMA);
+
+	RUN_TEST(_joyStrobe);
+	RUN_TEST(_joyStrobe_onoff);
 
 	printf("\nAll tests OK!!\n");
 

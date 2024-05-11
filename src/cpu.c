@@ -25,13 +25,13 @@ typedef enum {
 	M_IMPLIED,
 } AddressingMode;
 
-#define ARGP cpuRead(cpu, (*pc)++)
+#define ARGP cpuRead(cpu, cpu->pc++)
 
 #define UPDATE(X) _updateZeroAndNeg(cpu, X)
-#define ADDR _getAddressFromMode(cpu, &pc, MODE)
+#define ADDR _getAddressFromMode(cpu, MODE)
 #define MEMADDR cpuRead(cpu, ADDR)
 
-static void _gameCallback(PPU *ppu) {
+static void _gameCallback(PPU *ppu, Joypad *joy1, Joypad *joy2) {
 	ppuRender(ppu);
 
 	SDL_UpdateTexture(gScreen.texture, NULL, &ppu->frame.data, 256 * 3);
@@ -44,10 +44,62 @@ static void _gameCallback(PPU *ppu) {
 			case SDL_QUIT:
 				exit(23);
 			case SDL_KEYDOWN:
-				if( e.key.keysym.sym == SDLK_ESCAPE ) {
-					exit(24);
+				switch( e.key.keysym.sym ) {
+					case SDLK_ESCAPE:
+						exit(24);
+					case SDLK_a:
+						joy1->data.btnA = 1;
+						break;
+					case SDLK_s:
+						joy1->data.btnB = 1;
+						break;
+					case SDLK_UP:
+						joy1->data.up = 1;
+						break;
+					case SDLK_DOWN:
+						joy1->data.down = 1;
+						break;
+					case SDLK_LEFT:
+						joy1->data.left = 1;
+						break;
+					case SDLK_RIGHT:
+						joy1->data.right = 1;
+						break;
+					case SDLK_SPACE:
+						joy1->data.select = 1;
+						break;
+					case SDLK_RETURN:
+						joy1->data.start = 1;
+						break;
 				}
-
+				break;
+			case SDL_KEYUP:
+				switch( e.key.keysym.sym ) {
+					case SDLK_a:
+						joy1->data.btnA = 0;
+						break;
+					case SDLK_s:
+						joy1->data.btnB = 0;
+						break;
+					case SDLK_UP:
+						joy1->data.up = 0;
+						break;
+					case SDLK_DOWN:
+						joy1->data.down = 0;
+						break;
+					case SDLK_LEFT:
+						joy1->data.left = 0;
+						break;
+					case SDLK_RIGHT:
+						joy1->data.right = 0;
+						break;
+					case SDLK_SPACE:
+						joy1->data.select = 0;
+						break;
+					case SDLK_RETURN:
+						joy1->data.start = 0;
+						break;
+				}
 				break;
 			default:
 				break;
@@ -119,12 +171,11 @@ static inline void _clearNegative(CPU *cpu) {
 	cpu->status.negative = 0;
 }
 
-static uint16_t _getAddressFromMode(CPU *cpu, uint16_t *pc,
-									const AddressingMode MODE) {
+static uint16_t _getAddressFromMode(CPU *cpu, const AddressingMode MODE) {
 	switch( MODE ) {
 		case M_RELATIVE:
 		case M_IMMEDIATE:
-			return (*pc)++;
+			return cpu->pc++;
 
 		case M_ZEROPAGE:
 			return ARGP;
@@ -261,12 +312,13 @@ static void _rorA(CPU *cpu) {
 	UPDATE(cpu->regA);
 }
 
-static uint16_t _branch(CPU *cpu, uint16_t pc, const uint8_t COMPARISON) {
+static void _branch(CPU *cpu, const uint8_t COMPARISON) {
 	if( COMPARISON ) {
-		return (uint16_t)(pc + ((int8_t)cpuRead(cpu, pc)) + 1);
+		cpu->pc = (uint16_t)(cpu->pc + ((int8_t)cpuRead(cpu, cpu->pc)) + 1);
+		return;
 	}
 
-	return pc + 1;
+	cpu->pc++;
 }
 
 static void _push(CPU *cpu, const uint8_t VALUE) {
@@ -294,9 +346,8 @@ static uint16_t _pull16(CPU *cpu) {
 	return (HI << 8) | LO;
 }
 
-#define OP_FN(N) \
-	static uint16_t N(CPU *cpu, uint16_t pc, const AddressingMode MODE)
-typedef uint16_t (*OpFn)(CPU *cpu, uint16_t, const AddressingMode);
+#define OP_FN(N) static void N(CPU *cpu, const AddressingMode MODE)
+typedef void (*OpFn)(CPU *cpu, const AddressingMode);
 
 typedef struct _Op {
 	OpFn fn;
@@ -306,15 +357,13 @@ typedef struct _Op {
 	const char NAME[5];
 } Op;
 
-#define NOP       \
-	UNUSED(cpu);  \
-	UNUSED(MODE); \
-	return pc
+#define NOP      \
+	UNUSED(cpu); \
+	UNUSED(MODE);
 
 /* Adds a byte to the accumulator, with carry */
 OP_FN(_adc) {
 	_addToA(cpu, MEMADDR);
-	return pc;
 }
 
 /* ANDs the X register with the accumulator, then ANDs the accumulator with 7.
@@ -323,8 +372,6 @@ OP_FN(_adc) {
 OP_FN(_ahx) {
 	const uint8_t RESULT = (cpu->regA & cpu->regX) & 7;
 	cpuWrite(cpu, ADDR, RESULT);
-
-	return pc;
 }
 
 /* ANDs a byte with accumulator, then preforms a logical shift right on the
@@ -333,10 +380,8 @@ OP_FN(_ahx) {
 OP_FN(_alr) {
 	UNUSED(MODE);
 
-	cpu->regA &= cpuRead(cpu, ++pc);
+	cpu->regA &= cpuRead(cpu, ++cpu->pc);
 	_lsrA(cpu);
-
-	return pc;
 }
 
 /* ANDs a byte with accumulator. If the result is negative, sets the carry
@@ -351,16 +396,12 @@ OP_FN(_anc) {
 	} else {
 		_clearCarry(cpu);
 	}
-
-	return pc;
 }
 
 /* ANDs byte with the accumulator */
 OP_FN(_and) {
 	cpu->regA &= MEMADDR;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* ANDs a byte with the accumulator, then rotatse the accumulator bits right.
@@ -398,8 +439,6 @@ OP_FN(_arr) {
 	} else {
 		_clearOverflow(cpu);
 	}
-
-	return pc;
 }
 
 /* Performs an arithmetic shift left on a byte */
@@ -426,8 +465,6 @@ OP_FN(_asl) {
 		cpuWrite(cpu, ADDRESS, VALUE << 1);
 		UPDATE(VALUE);
 	}
-
-	return pc;
 }
 
 /* ANDs a byte with the accumulator, and then transfers the result to the X
@@ -438,8 +475,6 @@ OP_FN(_atx) {
 	cpu->regX = cpu->regA;
 
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* ANDs the X register with the accumulator, and subtracts a byte from the
@@ -455,26 +490,24 @@ OP_FN(_axs) {
 
 	cpu->regX -= VALUE;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Branches if the carry flag is clear */
 OP_FN(_bcc) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.carry == 0);
+	_branch(cpu, cpu->status.carry == 0);
 }
 
 /* Branches if the carry flag is set */
 OP_FN(_bcs) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.carry == 1);
+	_branch(cpu, cpu->status.carry == 1);
 }
 
 /* Branches if the zero flag is set */
 OP_FN(_beq) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.zero == 1);
+	_branch(cpu, cpu->status.zero == 1);
 }
 
 /* Tests if the bits of a memory location are set by ANDing them with a mask
@@ -504,70 +537,60 @@ OP_FN(_bit) {
 	} else {
 		_clearOverflow(cpu);
 	}
-
-	return pc;
 }
 
 /* Branches if the negative flag is set */
 OP_FN(_bmi) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.negative == 1);
+	_branch(cpu, cpu->status.negative == 1);
 }
 
 /* Branches if the zero flag is clear */
 OP_FN(_bne) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.zero == 0);
+	_branch(cpu, cpu->status.zero == 0);
 }
 
 /* Branches if the negative flag is clear */
 OP_FN(_bpl) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.negative == 0);
+	_branch(cpu, cpu->status.negative == 0);
 }
 
 /* Branches if the overflow flag is clear */
 OP_FN(_bvc) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.overflow == 0);
+	_branch(cpu, cpu->status.overflow == 0);
 }
 
 /* Branches if the overflow flag is set */
 OP_FN(_bvs) {
 	UNUSED(MODE);
-	return _branch(cpu, pc, cpu->status.overflow == 1);
+	_branch(cpu, cpu->status.overflow == 1);
 }
 
 /* Clears the carry flag */
 OP_FN(_clc) {
 	UNUSED(MODE);
 	_clearCarry(cpu);
-
-	return pc;
 }
 
 /* Clears the decimal flag */
 OP_FN(_cld) {
 	UNUSED(MODE);
 	_clearDecimal(cpu);
-
-	return pc;
 }
 
 /* Clears the interrupt flag */
 OP_FN(_cli) {
 	UNUSED(MODE);
 	_clearIntr(cpu);
-
-	return pc;
 }
 
 /* Clears the overflow flag */
 OP_FN(_clv) {
 	UNUSED(MODE);
 	_clearOverflow(cpu);
-
-	return pc;
 }
 
 /* Compares the accumulator (A) to a value in memory (M)
@@ -587,8 +610,6 @@ OP_FN(_cmp) {
 	}
 
 	UPDATE(cpu->regA - VALUE);
-
-	return pc;
 }
 
 /* Same as CMP, but compares with the X register instead of the accumulator */
@@ -602,8 +623,6 @@ OP_FN(_cpx) {
 	}
 
 	UPDATE(cpu->regX - VALUE);
-
-	return pc;
 }
 
 /* Same as CMP, but compares with the Y register instead of the accumulator */
@@ -617,8 +636,6 @@ OP_FN(_cpy) {
 	}
 
 	UPDATE(cpu->regY - VALUE);
-
-	return pc;
 }
 
 /* Subtracts 1 from a value in memory, without borrow */
@@ -633,7 +650,6 @@ OP_FN(_dcp) {
 	}
 
 	UPDATE(cpu->regA - VALUE);
-	return pc;
 }
 
 /* Decreases a values in memory by 1 */
@@ -645,8 +661,6 @@ OP_FN(_dec) {
 
 	cpuWrite(cpu, ADDRESS, VALUE);
 	UPDATE(VALUE);
-
-	return pc;
 }
 
 /* Decreases the value in the X register by 1 */
@@ -655,8 +669,6 @@ OP_FN(_dex) {
 
 	--cpu->regX;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Decreases the value in the Y register by 1 */
@@ -665,16 +677,12 @@ OP_FN(_dey) {
 
 	--cpu->regY;
 	UPDATE(cpu->regY);
-
-	return pc;
 }
 
 /* XORs (exclusive or) the accumulator with a byte */
 OP_FN(_eor) {
 	cpu->regA ^= MEMADDR;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Increases a value in memory by 1 */
@@ -684,8 +692,6 @@ OP_FN(_inc) {
 
 	cpuWrite(cpu, ADDRESS, VALUE);
 	UPDATE(VALUE);
-
-	return pc;
 }
 
 /* Increases the value in the X register by 1 */
@@ -694,8 +700,6 @@ OP_FN(_inx) {
 
 	++cpu->regX;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Increases the value in the Y register by 1 */
@@ -704,8 +708,6 @@ OP_FN(_iny) {
 
 	++cpu->regY;
 	UPDATE(cpu->regY);
-
-	return pc;
 }
 
 /* Increases a value in memory by 1, then subtracts the result from the
@@ -719,14 +721,12 @@ OP_FN(_isb) {
 	UPDATE(VALUE);
 
 	_addToA(cpu, 255 - cpuRead(cpu, ADDRESS));
-
-	return pc;
 }
 
 /* Jumps (sets the PC to) an address */
 OP_FN(_jmp) {
 	UNUSED(MODE);
-	return ADDR;
+	cpu->pc = ADDR;
 }
 
 /* Jumps (sets the PC to) an address, and pushes the current address to the
@@ -734,9 +734,9 @@ OP_FN(_jmp) {
  */
 OP_FN(_jsr) {
 	UNUSED(MODE);
-	_push16(cpu, pc + 1);
+	_push16(cpu, cpu->pc + 1);
 
-	return ADDR;
+	cpu->pc = ADDR;
 }
 
 /* ANDs a value in memory with the stack pointer.
@@ -748,8 +748,6 @@ OP_FN(_las) {
 
 	cpu->regA = cpu->stack;
 	cpu->regX = cpu->stack;
-
-	return pc;
 }
 
 /* Loads the X register and the accumulator with a value in memory */
@@ -759,32 +757,24 @@ OP_FN(_lax) {
 
 	cpu->regA = VALUE;
 	cpu->regX = VALUE;
-
-	return pc;
 }
 
 /* Loads the accumulator with a value in memory */
 OP_FN(_lda) {
 	cpu->regA = MEMADDR;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Loads the X register with a value in memory */
 OP_FN(_ldx) {
 	cpu->regX = MEMADDR;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Loads the Y register with a value in memory */
 OP_FN(_ldy) {
 	cpu->regY = MEMADDR;
 	UPDATE(cpu->regY);
-
-	return pc;
 }
 
 /* Performs a logical shift right on a byte */
@@ -804,30 +794,23 @@ OP_FN(_lsr) {
 		cpuWrite(cpu, ADDRESS, VALUE >> 1);
 		UPDATE(VALUE);
 	}
-
-	return pc;
 }
 
 /* No operation */
 OP_FN(_nop) {
 	(void)ADDR;
-	return pc;
 }
 
 /* ORs a byte with the accumulator */
 OP_FN(_ora) {
 	cpu->regA |= MEMADDR;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Pushes a copy of the accumulator to the stack */
 OP_FN(_pha) {
 	UNUSED(MODE);
 	_push(cpu, cpu->regA);
-
-	return pc;
 }
 
 /* Pushes a copy of the status flags (P register) to the stack
@@ -836,8 +819,6 @@ OP_FN(_pha) {
 OP_FN(_php) {
 	UNUSED(MODE);
 	_push(cpu, cpu->status.bits | BFLAG1_BIT | BFLAG2_BIT);
-
-	return pc;
 }
 
 /* Pulls a value from the stack and sets the accumulator to that value */
@@ -846,8 +827,6 @@ OP_FN(_pla) {
 
 	cpu->regA = _pull(cpu);
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Pulls a value from the stack and sets the status flags (P register) to that
@@ -862,8 +841,6 @@ OP_FN(_plp) {
 	cpu->status.bFlag2 = 1;
 
 	_clearBFlag1(cpu);
-
-	return pc;
 }
 
 /* Rotates a value in memory left (see: ROL,) and AND the result with the
@@ -889,8 +866,6 @@ OP_FN(_rla) {
 
 	cpu->regA &= val;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Rotates a value in memory right (see: ROR,) and adds the result to the
@@ -914,8 +889,6 @@ OP_FN(_rra) {
 
 	cpuWrite(cpu, ADDRESS, val);
 	_addToA(cpu, val);
-
-	return pc;
 }
 
 /* Rotates a byte's bits left. This is the same as a LSR, but the 7th bit, that
@@ -963,8 +936,6 @@ OP_FN(_rol) {
 		cpuWrite(cpu, ADDRESS, val);
 		UPDATE(val);
 	}
-
-	return pc;
 }
 
 /* See: ROL, but rotates right */
@@ -990,8 +961,6 @@ OP_FN(_ror) {
 		cpuWrite(cpu, ADDRESS, val);
 		UPDATE(val);
 	}
-
-	return pc;
 }
 
 /* Returns from an interrupt by pulling the status flags (P register) from the
@@ -1001,57 +970,47 @@ OP_FN(_ror) {
  */
 OP_FN(_rti) {
 	UNUSED(MODE);
-	UNUSED(pc);
 
 	cpu->status.bits = _pull(cpu);
 	cpu->status.bFlag2 = 1;
 
 	_clearBFlag1(cpu);
 
-	return _pull16(cpu);
+	cpu->pc = _pull16(cpu);
 }
 /* Returns from a subroutine by pulling the PC from the stack */
 OP_FN(_rts) {
 	UNUSED(MODE);
-	UNUSED(pc);
 
-	return _pull16(cpu) + 1;
+	cpu->pc = _pull16(cpu) + 1;
 }
 
 /* ANDs the A and X registers together and stores the result in memory */
 OP_FN(_sax) {
 	cpuWrite(cpu, ADDR, cpu->regA & cpu->regX);
-	return pc;
 }
 
 /* Subtracts a byte from the accumulator, with carry */
 OP_FN(_sbc) {
 	_addToA(cpu, 255 - cpuRead(cpu, ADDR));
-	return pc;
 }
 
 /* Sets the carry flag */
 OP_FN(_sec) {
 	UNUSED(MODE);
 	_setCarry(cpu);
-
-	return pc;
 }
 
 /* Sets the decimal flag */
 OP_FN(_sed) {
 	UNUSED(MODE);
 	_setDecimal(cpu);
-
-	return pc;
 }
 
 /* Sets the interrupt flag */
 OP_FN(_sei) {
 	UNUSED(MODE);
 	_setIntr(cpu);
-
-	return pc;
 }
 
 /* ANDs the X register with the high byte of the given address, + 1
@@ -1062,8 +1021,6 @@ OP_FN(_shx) {
 	const uint8_t HI_BYTE = (uint8_t)((ADDRESS >> 8) + 1);
 
 	cpuWrite(cpu, ADDRESS, cpu->regX & HI_BYTE);
-
-	return pc;
 }
 
 /* ANDs the Y register with the high byte of the given address, + 1
@@ -1074,8 +1031,6 @@ OP_FN(_shy) {
 	const uint8_t HI_BYTE = (uint8_t)((ADDRESS >> 8) + 1);
 
 	cpuWrite(cpu, ADDRESS, cpu->regY & HI_BYTE);
-
-	return pc;
 }
 
 /* ASLs a value in memory and ORs the accumulator with the result */
@@ -1095,8 +1050,6 @@ OP_FN(_slo) {
 
 	cpu->regA |= value;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* LSRs a value in memory and XORs the accumulator with the result */
@@ -1114,26 +1067,21 @@ OP_FN(_sre) {
 
 	cpuWrite(cpu, ADDRESS, value);
 	cpu->regA ^= value;
-
-	return pc;
 }
 
 /* Stores the accumulator contents in memory */
 OP_FN(_sta) {
 	cpuWrite(cpu, ADDR, cpu->regA);
-	return pc;
 }
 
 /* Stores the X register contents in memory */
 OP_FN(_stx) {
 	cpuWrite(cpu, ADDR, cpu->regX);
-	return pc;
 }
 
 /* Stores the Y register contents in memory */
 OP_FN(_sty) {
 	cpuWrite(cpu, ADDR, cpu->regY);
-	return pc;
 }
 
 /* ANDs the accumulator with the X register and stores the result on the stack
@@ -1151,7 +1099,6 @@ OP_FN(_tas) {
 	const uint8_t HI_BYTE = (uint8_t)((ADDR >> 8) + 1);
 
 	cpuWrite(cpu, ADDRESS, cpu->stack & HI_BYTE);
-	return pc;
 }
 
 /* Transfer the contents of the accumulator to the X register */
@@ -1160,8 +1107,6 @@ OP_FN(_tax) {
 
 	cpu->regX = cpu->regA;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Transfer the contents of the accumulator to the Y register */
@@ -1170,8 +1115,6 @@ OP_FN(_tay) {
 
 	cpu->regY = cpu->regA;
 	UPDATE(cpu->regY);
-
-	return pc;
 }
 
 /* Transfer the stack pointer to the X register */
@@ -1180,8 +1123,6 @@ OP_FN(_tsx) {
 
 	cpu->regX = cpu->stack;
 	UPDATE(cpu->regX);
-
-	return pc;
 }
 
 /* Transfer the contents of the X register to the accumulator */
@@ -1190,16 +1131,12 @@ OP_FN(_txa) {
 
 	cpu->regA = cpu->regX;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* Transfer the contents of the X register to the stack pointer */
 OP_FN(_txs) {
 	UNUSED(MODE);
 	cpu->stack = cpu->regX;
-
-	return pc;
 }
 
 /* Transfer the contents of the Y register to the accumulator */
@@ -1208,8 +1145,6 @@ OP_FN(_tya) {
 
 	cpu->regA = cpu->regY;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 /* This operation is weird and "unpredictable"
@@ -1232,8 +1167,6 @@ OP_FN(_tya) {
 OP_FN(_xaa) {
 	cpu->regA = (cpu->regA | 0xFF) & cpu->regX & MEMADDR;
 	UPDATE(cpu->regA);
-
-	return pc;
 }
 
 static const Op OPS[256] = {
@@ -1561,10 +1494,16 @@ void cpuInitFromROM(CPU *cpu, ROM rom) {
 }
 
 uint8_t cpuRead(CPU *cpu, const uint16_t ADDRESS) {
+	if( ADDRESS == 0x2001 ) {
+		printf("aha @ %04X\n", cpu->pc);
+	}
 	return busRead(&cpu->bus, ADDRESS);
 }
 
 uint16_t cpuRead16(CPU *cpu, const uint16_t ADDRESS) {
+	if( ADDRESS == 0x2001 ) {
+		printf("aha @ %04X\n", cpu->pc);
+	}
 	return busRead16(&cpu->bus, ADDRESS);
 }
 
@@ -1626,23 +1565,24 @@ static bool _handleInput(CPU *cpu) {
 }
 */
 
-void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
-	printf("%04X  ", pc);
+void cpuTrace(CPU *cpu, const Op OP) {
+	printf("%04X  ", --cpu->pc);
 
 	switch( OP.bytes ) {
 		case 1:
-			printf("%02X       ", cpuRead(cpu, pc));
+			printf("%02X       ", cpuRead(cpu, cpu->pc));
 			break;
 		case 2:
-			printf("%02X %02X    ", cpuRead(cpu, pc), cpuRead(cpu, pc + 1));
+			printf("%02X %02X    ", cpuRead(cpu, cpu->pc),
+				   cpuRead(cpu, cpu->pc + 1));
 			break;
 		case 3:
-			printf("%02X %02X %02X ", cpuRead(cpu, pc), cpuRead(cpu, pc + 1),
-				   cpuRead(cpu, pc + 2));
+			printf("%02X %02X %02X ", cpuRead(cpu, cpu->pc),
+				   cpuRead(cpu, cpu->pc + 1), cpuRead(cpu, cpu->pc + 2));
 			break;
 		default:
-			errPrint(C_YELLOW, "Bad OP @ pc=%04X %02X, dumping info:\n", pc,
-					 cpuRead(cpu, pc));
+			errPrint(C_YELLOW, "Bad OP @ pc=%04X %02X, dumping info:\n",
+					 cpu->pc, cpuRead(cpu, cpu->pc));
 			printf(" * Addressing mode.. %02X\n", OP.mode);
 			printf(" * Cycles........... %02X\n", OP.cycles);
 			printf(" * Bytes............ %02X\n", OP.bytes);
@@ -1658,79 +1598,76 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 
 	switch( OP.mode ) {
 		case M_IMMEDIATE:
-			printf("#$%02X                        ", cpuRead(cpu, pc + 1));
+			printf("#$%02X                        ", cpuRead(cpu, ++cpu->pc));
 			break;
 
 		case M_ZEROPAGE: {
-			const uint8_t ADDRESS = cpuRead(cpu, pc + 1);
+			const uint8_t ADDRESS = cpuRead(cpu, ++cpu->pc);
 			printf("$%02X                         ", ADDRESS);
 		} break;
 
 		case M_ZEROPAGE_X: {
-			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint8_t ADDRESS = cpuRead(cpu, ++cpu->pc);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, OP.mode);
+			--cpu->pc;
 			printf("$%02X,X @ %02x                  ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_ZEROPAGE_Y: {
-			const uint8_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint8_t ADDRESS = cpuRead(cpu, ++cpu->pc);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, OP.mode);
 			printf("$%02X,Y @ %02X                  ", ADDRESS, COMPUTED);
 		} break;
 
-		case M_RELATIVE: {
+		case M_RELATIVE:
 			printf("$%02X                       ",
-				   pc + cpuRead(cpu, pc + 1) + 2);
-		} break;
+				   cpu->pc + cpuRead(cpu, cpu->pc + 1) + 2);
+			++cpu->pc;
+			break;
 
 		case M_ABSOLUTE: {
-			++pc;
-			const uint16_t ADDRESS = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			++cpu->pc;
+			const uint16_t ADDRESS = _getAddressFromMode(cpu, OP.mode);
+			cpu->pc -= 2;
 			printf("$%04X                       ", ADDRESS);
 		} break;
 
 		case M_ABSOLUTE_X: {
-			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint16_t ADDRESS = cpuRead16(cpu, ++cpu->pc);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, OP.mode);
+			cpu->pc -= 2;
 			printf("$%04X,X @ %04X              ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_ABSOLUTE_Y: {
-			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint16_t ADDRESS = cpuRead16(cpu, ++cpu->pc);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, OP.mode);
+			cpu->pc -= 2;
 			printf("$%04X,Y @ %04X              ", ADDRESS, COMPUTED);
 		} break;
 
 		case M_INDIRECT: {
-			const uint16_t ADDRESS = cpuRead16(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint16_t ADDRESS = cpuRead16(cpu, ++cpu->pc);
 			printf("($%04X)                     ", ADDRESS);
 		} break;
 
 		case M_INDIRECT_X: {
-			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint16_t ADDRESS = cpuRead(cpu, ++cpu->pc);
 			printf("($%02X,X) @ %02X                ", ADDRESS,
 				   (ADDRESS + cpu->regX) & 0xFF);
 		} break;
 
 		case M_INDIRECT_Y: {
-			const uint16_t ADDRESS = cpuRead(cpu, ++pc);
-			const uint16_t COMPUTED = _getAddressFromMode(cpu, &pc, OP.mode);
-			--pc;
+			const uint16_t ADDRESS = cpuRead(cpu, ++cpu->pc);
+			const uint16_t COMPUTED = _getAddressFromMode(cpu, OP.mode);
+			--cpu->pc;
 			printf("($%02X),Y = %04X @ %04X       ", ADDRESS,
 				   (COMPUTED - cpu->regY), COMPUTED);
 		} break;
 
 		case M_IMPLIED:
 			printf("                            ");
+			++cpu->pc;
 			break;
 
 		default:
@@ -1741,8 +1678,8 @@ void cpuTrace(CPU *cpu, uint16_t pc, const Op OP) {
 		   cpu->regY, cpu->status.bits, cpu->stack);
 }
 
-static uint16_t _interruptNMI(CPU *cpu, const uint16_t PC) {
-	_push16(cpu, PC);
+static void _interruptNMI(CPU *cpu) {
+	_push16(cpu, cpu->pc);
 
 	CPUStatus status = cpu->status;
 	status.bFlag1 = 0;
@@ -1755,26 +1692,26 @@ static uint16_t _interruptNMI(CPU *cpu, const uint16_t PC) {
 
 	cpu->bus.ppu.nmiInterrupt = false;
 
-	return cpuRead16(cpu, 0xFFFA);
+	cpu->pc = cpuRead16(cpu, 0xFFFA);
 }
 
 void cpuRun(CPU *cpu) {
 	srand((unsigned int)time(NULL));
 
-	register uint16_t pc = cpuRead16(cpu, 0xFFFC);
+	cpu->pc = cpuRead16(cpu, 0xFFFC);
 	register uint16_t pcState = 0;
 
 	while( true ) {
 		if( cpu->bus.ppu.nmiInterrupt ) {
-			pc = _interruptNMI(cpu, pc);
+			_interruptNMI(cpu);
 		}
 
-		const uint8_t OP = cpuRead(cpu, pc++);
-		pcState = pc;
+		const uint8_t OP = cpuRead(cpu, cpu->pc++);
+		pcState = cpu->pc;
 
 		switch( OP ) {
 			case 0x00: /* BRK */
-				cpuTrace(cpu, pc - 1, (Op){NULL, M_IMPLIED, 7, 1, "BRK"});
+				cpuTrace(cpu, (Op){NULL, M_IMPLIED, 7, 1, "BRK"});
 				return;
 			case 0x02:	// KIL
 			case 0x12:	// Unnoficial opcode, works basically the same as BRK
@@ -1788,18 +1725,16 @@ void cpuRun(CPU *cpu) {
 			case 0xB2:
 			case 0xD2:
 			case 0xF2:
-				cpuTrace(cpu, pc - 1, (Op){NULL, M_IMPLIED, 7, 1, "*KIL"});
+				cpuTrace(cpu, (Op){NULL, M_IMPLIED, 7, 1, "*KIL"});
 				return;
 
 			default: {
 				const Op OPERATION = OPS[OP];
-
-				/* cpuTrace(cpu, pc - 1, OPERATION); */
-				pc = OPERATION.fn(cpu, pc, OPERATION.mode);
+				OPERATION.fn(cpu, OPERATION.mode);
 
 				busTick(&cpu->bus, OPERATION.cycles);
-				if( pcState == pc ) {
-					pc += (uint16_t)(OPERATION.bytes - 1);
+				if( pcState == cpu->pc ) {
+					cpu->pc += (uint16_t)(OPERATION.bytes - 1);
 				}
 			}
 		}

@@ -2,10 +2,11 @@
 #define GUARD_NESINC_BUS_H_
 
 #include "common.h"
+#include "joypad.h"
 #include "ppu.h"
 #include "rom.h"
 
-#define BUS_CALLBACK_FN void (*callback)(PPU * ppu)
+#define BUS_CALLBACK_FN void (*callback)(PPU *, Joypad *, Joypad *)
 
 typedef struct _Bus {
 	uint8_t cpuVRAM[2048];
@@ -13,6 +14,9 @@ typedef struct _Bus {
 	PPU ppu;
 
 	size_t cycles;
+
+	Joypad joy1;
+	Joypad joy2;
 
 	BUS_CALLBACK_FN;
 } Bus;

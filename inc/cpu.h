@@ -44,6 +44,8 @@ typedef struct _CPU {
 	uint8_t regX; /* Register X */
 	uint8_t regY; /* Register Y */
 
+	uint16_t pc;
+
 	CPUStatus status;
 
 	uint8_t stack; /* Stack "pointer" ($1000-$10FF) */
